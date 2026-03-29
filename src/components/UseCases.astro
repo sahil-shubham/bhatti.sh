@@ -3,33 +3,36 @@ const useCases = [
     {
         title: "AI Coding Agents",
         description: "Give LLMs a real, stateful environment to execute code, install packages, and run tests — with full VM isolation between tenants.",
-        code: `<span class="c"># REST API — what your agent framework calls</span>
+        code: `<span class="c"># REST API — what your agent calls</span>
 $ curl -X POST /sandboxes \\
-    -d '{"name":"agent","cpus":2,"memory":1024}'
+    -d '{"name":"agent","cpus":2}'
 
-<span class="c"># Exec with streaming output (NDJSON)</span>
-$ curl -N -H "Accept: application/x-ndjson" \\
+<span class="c"># Streaming exec (NDJSON)</span>
+$ curl -N \\
+    -H "Accept: application/x-ndjson" \\
     -d '{"cmd":["npm","test"]}' \\
     /sandboxes/\$ID/exec
 
 <span class="c"># Atomic file writes</span>
-$ curl -X PUT /sandboxes/\$ID/files?path=/app.js \\
+$ curl -X PUT \\
+    /sandboxes/\$ID/files?path=/app.js \\
     --data-binary @app.js
 
-<span class="c"># Server-side truncated reads (offset/limit)</span>
-$ curl /sandboxes/\$ID/files?path=/app.log\\&limit=100`
+<span class="c"># Truncated reads (offset/limit)</span>
+$ curl /sandboxes/\$ID/files \\
+    ?path=/app.log\\&limit=100`
     },
     {
         title: "Disposable Dev Environments",
         description: "Spin up isolated Linux VMs with Node 22, git, and common tools pre-installed. Snapshot and resume across sessions.",
-        code: `<span class="c"># Interactive shell with session persistence</span>
+        code: `<span class="c"># Shell with session persistence</span>
 $ bhatti create --name project \\
     --cpus 2 --memory 1024
 
 $ bhatti shell project
-lohar@project:/workspace$ npm install
-lohar@project:/workspace$ npm run dev
-<span class="c"># Ctrl+\\ to detach — process keeps running</span>
+lohar@project:~$ npm install
+lohar@project:~$ npm run dev
+<span class="c"># Ctrl+\\ to detach — keeps running</span>
 
 <span class="c"># Reconnect later, scrollback replayed</span>
 $ bhatti shell project`
