@@ -213,6 +213,7 @@ section::before {
     padding: 0 16px;
     font-size: 0.875rem;
     color: var(--amber-400);
+    white-space: nowrap;
 }
 
 .copy-btn {
