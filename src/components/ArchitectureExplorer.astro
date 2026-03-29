@@ -46,34 +46,67 @@
                         <div class="particle"></div>
                     </div>
                     <div class="flow-label">Binary wire protocol · TCP :1024</div>
+                    <div class="flow-direction">daemon ⇌ lohar</div>
                 </div>
 
-                <!-- Firecracker microVM -->
-                <div class="layer layer--vm" data-explore="vm" id="layer-vm">
-                    <div class="layer-header">
-                        <span class="layer-name">Firecracker microVM</span>
-                        <span class="layer-tag">kernel 6.1 · ubuntu 24.04</span>
-                    </div>
-                    <div class="vm-internals">
-                        <div class="vm-component vm-lohar" data-explore="lohar">
-                            <div class="comp-name">lohar <span class="comp-badge">PID 1</span></div>
-                            <div class="lohar-grid">
-                                <div class="lohar-item">exec / shell</div>
-                                <div class="lohar-item">PTY sessions</div>
-                                <div class="lohar-item">file ops</div>
-                                <div class="lohar-item">port forward</div>
+                <!-- VM + Host Storage row -->
+                <div class="vm-storage-row">
+                    <!-- Firecracker microVM -->
+                    <div class="layer layer--vm" data-explore="vm" id="layer-vm">
+                        <div class="layer-header">
+                            <div class="layer-header-left">
+                                <span class="layer-name">Firecracker microVM</span>
+                                <span class="vm-multiplicity">×N</span>
+                            </div>
+                            <span class="layer-tag">kernel 6.1 · ubuntu 24.04</span>
+                        </div>
+                        <div class="thermal-indicator">
+                            <span class="thermal-state thermal-hot">hot</span>
+                            <span class="thermal-arrow">⇄</span>
+                            <span class="thermal-state thermal-warm">warm</span>
+                            <span class="thermal-arrow">⇄</span>
+                            <span class="thermal-state thermal-cold">cold</span>
+                        </div>
+                        <div class="vm-internals">
+                            <div class="vm-component vm-lohar" data-explore="lohar">
+                                <div class="comp-name">lohar <span class="comp-badge">PID 1</span></div>
+                                <div class="lohar-grid">
+                                    <div class="lohar-item">exec / shell</div>
+                                    <div class="lohar-item">PTY sessions</div>
+                                    <div class="lohar-item">file ops</div>
+                                    <div class="lohar-item">port forward</div>
+                                </div>
                             </div>
                         </div>
-                        <div class="vm-disks">
-                            <div class="disk" data-explore="tiers">rootfs.ext4</div>
-                            <div class="disk" data-explore="configdrive">config.ext4</div>
-                            <div class="disk" data-explore="volumes">vol-*.ext4</div>
+                        <div class="vm-guest-net" data-explore="net-eth0">
+                            <span class="net-dot"></span>
+                            <span>eth0 (kernel ip=)</span>
                         </div>
+                    </div>
+
+                    <!-- Host-side storage -->
+                    <div class="host-storage">
+                        <div class="storage-header">
+                            <span class="storage-label">Host Storage</span>
+                            <span class="storage-sub">virtio-blk</span>
+                        </div>
+                        <div class="disk" data-explore="tiers">rootfs.ext4</div>
+                        <div class="disk" data-explore="configdrive">config.ext4</div>
+                        <div class="disk" data-explore="volumes">vol-*.ext4</div>
+                        <div class="storage-path">/var/lib/bhatti/sandboxes/</div>
                     </div>
                 </div>
 
-                <!-- Network layer -->
+                <!-- Network boundary -->
+                <div class="net-boundary">
+                    <div class="boundary-line"></div>
+                    <span class="boundary-label">↕ virtio-net</span>
+                    <div class="boundary-line"></div>
+                </div>
+
+                <!-- Host-side networking -->
                 <div class="layer layer--net" id="layer-net">
+                    <div class="net-section-label">Host Networking</div>
                     <div class="net-row">
                         <div class="net-node" data-explore="net-bridge">
                             <span class="net-dot"></span>
@@ -85,11 +118,6 @@
                             <span>TAP device</span>
                         </div>
                         <div class="net-line"></div>
-                        <div class="net-node" data-explore="net-eth0">
-                            <span class="net-dot"></span>
-                            <span>eth0 (kernel ip=)</span>
-                        </div>
-                        <div class="net-line"></div>
                         <div class="net-node" data-explore="net-nat">
                             <span class="net-dot"></span>
                             <span>iptables NAT</span>
@@ -99,12 +127,11 @@
             </div>
         </div>
 
-        <!-- Detail area — always visible, content swaps -->
+        <!-- Detail area — hidden until a component is clicked -->
         <div class="detail-area" id="detail-area">
             <div class="detail-header" id="detail-header">
-                <span class="detail-hint" id="detail-hint">← Click any component above to explore</span>
-                <h3 id="detail-title" style="display:none;"></h3>
-                <button class="detail-close" id="detail-close" style="display:none;">×</button>
+                <h3 id="detail-title"></h3>
+                <button class="detail-close" id="detail-close">×</button>
             </div>
             <div class="detail-body" id="detail-body"></div>
         </div>
@@ -162,6 +189,12 @@
         margin-bottom: 16px;
     }
 
+    .layer-header-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
     .layer-name {
         font-family: var(--font-mono);
         font-size: 0.875rem;
@@ -173,6 +206,17 @@
         font-family: var(--font-mono);
         font-size: 0.6875rem;
         color: var(--zinc-500);
+    }
+
+    /* VM multiplicity badge */
+    .vm-multiplicity {
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: #3b82f6;
+        border: 1px solid rgba(59,130,246,0.3);
+        border-radius: 2px;
+        padding: 1px 5px;
+        letter-spacing: 0.02em;
     }
 
     /* Daemon sub-components */
@@ -220,16 +264,20 @@
     /* Flow channel */
     .flow-channel {
         position: relative;
-        height: 48px;
+        height: 56px;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
         margin: 0 48px;
         cursor: pointer;
+        gap: 2px;
     }
 
     .flow-channel:hover .flow-label { color: var(--zinc-200); }
     .flow-channel.active .flow-label { color: var(--amber-500); }
+    .flow-channel:hover .flow-direction { color: var(--zinc-400); }
+    .flow-channel.active .flow-direction { color: var(--amber-400); }
 
     .flow-label {
         font-family: var(--font-mono);
@@ -242,9 +290,19 @@
         transition: color 0.2s;
     }
 
+    .flow-direction {
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--zinc-600);
+        position: relative;
+        z-index: 1;
+        transition: color 0.2s;
+        letter-spacing: 0.02em;
+    }
+
     .flow-particles {
         position: absolute;
-        top: 50%;
+        top: 40%;
         left: 0;
         right: 0;
         height: 1px;
@@ -272,6 +330,13 @@
         100% { left: 100%; opacity: 0; }
     }
 
+    /* VM + Host Storage row */
+    .vm-storage-row {
+        display: flex;
+        gap: 0;
+        align-items: stretch;
+    }
+
     /* VM — blue identity */
     .layer--vm {
         border: 1px solid rgba(59,130,246,0.15);
@@ -280,16 +345,66 @@
         border-radius: var(--border-radius);
         cursor: pointer;
         transition: border-color 0.3s, box-shadow 0.3s;
+        flex: 1;
+        min-width: 0;
+        position: relative;
+        /* Stacked card effect — implies ×N multiplicity */
+        box-shadow:
+            5px 5px 0 -1px var(--zinc-950),
+            5px 5px 0 0 rgba(59,130,246,0.08),
+            10px 10px 0 -1px var(--zinc-950),
+            10px 10px 0 0 rgba(59,130,246,0.04);
     }
 
     .layer--vm:hover { border-color: rgba(59,130,246,0.35); }
     .layer--vm.active { border-color: #3b82f6; box-shadow: 0 0 24px rgba(59,130,246,0.08); }
 
+    /* Thermal state indicator */
+    .thermal-indicator {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 14px;
+        padding: 6px 10px;
+        background: rgba(9,9,11,0.5);
+        border-radius: 2px;
+        width: fit-content;
+    }
+
+    .thermal-state {
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        padding: 1px 6px;
+        border-radius: 2px;
+    }
+
+    .thermal-hot {
+        color: #f97316;
+        background: rgba(249,115,22,0.08);
+        border: 1px solid rgba(249,115,22,0.2);
+    }
+
+    .thermal-warm {
+        color: #eab308;
+        background: rgba(234,179,8,0.08);
+        border: 1px solid rgba(234,179,8,0.15);
+    }
+
+    .thermal-cold {
+        color: #3b82f6;
+        background: rgba(59,130,246,0.08);
+        border: 1px solid rgba(59,130,246,0.15);
+    }
+
+    .thermal-arrow {
+        font-size: 0.625rem;
+        color: var(--zinc-600);
+    }
+
     .vm-internals {
-        display: grid;
-        grid-template-columns: 1fr auto;
+        display: flex;
+        flex-direction: column;
         gap: 14px;
-        align-items: start;
     }
 
     /* Lohar — green identity */
@@ -307,7 +422,7 @@
 
     .lohar-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr 1fr 1fr 1fr;
         gap: 6px;
         margin-top: 10px;
     }
@@ -321,13 +436,76 @@
         border-radius: 2px;
     }
 
-    /* Disks */
-    .vm-disks {
+    /* Guest-side networking (inside VM) */
+    .vm-guest-net {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--zinc-400);
+        margin-top: 14px;
+        padding: 8px 10px;
+        border: 1px solid rgba(59,130,246,0.1);
+        border-radius: 3px;
+        cursor: pointer;
+        transition: border-color 0.2s, color 0.2s, background 0.2s;
+        background: rgba(59,130,246,0.02);
+    }
+
+    .vm-guest-net:hover { border-color: rgba(59,130,246,0.35); color: var(--zinc-200); }
+    .vm-guest-net.active { border-color: #3b82f6; color: var(--zinc-50); background: rgba(59,130,246,0.05); }
+
+    .vm-guest-net .net-dot {
+        background: #3b82f6;
+        opacity: 0.6;
+    }
+
+    .vm-guest-net:hover .net-dot { opacity: 1; }
+    .vm-guest-net.active .net-dot { opacity: 1; }
+
+    /* Host-side storage */
+    .host-storage {
         display: flex;
         flex-direction: column;
         gap: 6px;
+        justify-content: center;
+        padding-left: 18px;
+        margin-left: 18px;
+        border-left: 1px dashed var(--zinc-700);
+        position: relative;
     }
 
+    .storage-header {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-bottom: 4px;
+    }
+
+    .storage-label {
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--zinc-500);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .storage-sub {
+        font-family: var(--font-mono);
+        font-size: 0.5625rem;
+        color: var(--zinc-600);
+        letter-spacing: 0.02em;
+    }
+
+    .storage-path {
+        font-family: var(--font-mono);
+        font-size: 0.5625rem;
+        color: var(--zinc-600);
+        margin-top: 4px;
+    }
+
+    /* Disks */
     .disk {
         font-family: var(--font-mono);
         font-size: 0.75rem;
@@ -338,18 +516,50 @@
         padding: 8px 12px;
         cursor: pointer;
         transition: border-color 0.2s, color 0.2s;
+        white-space: nowrap;
     }
 
     .disk:hover { border-color: var(--zinc-500); color: var(--zinc-200); }
     .disk.active { border-color: var(--amber-500); color: var(--zinc-50); }
 
-    /* Network — individual clickable nodes */
+    /* Network boundary */
+    .net-boundary {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 14px 48px;
+    }
+
+    .boundary-line {
+        flex: 1;
+        height: 1px;
+        border-top: 1px dashed var(--zinc-700);
+    }
+
+    .boundary-label {
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--zinc-600);
+        white-space: nowrap;
+        letter-spacing: 0.02em;
+    }
+
+    /* Host networking */
     .layer--net {
         border: 1px solid var(--zinc-800);
         background: var(--zinc-900);
         padding: 16px 20px;
-        margin-top: 14px;
         border-radius: var(--border-radius);
+        position: relative;
+    }
+
+    .net-section-label {
+        font-family: var(--font-mono);
+        font-size: 0.5625rem;
+        color: var(--zinc-600);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 10px;
     }
 
     .net-row {
@@ -398,15 +608,15 @@
     /* Detail area — always visible */
     .detail-area {
         margin-top: 28px;
-        border: 1px solid var(--zinc-800);
+        border: 1px solid rgba(249,115,22,0.2);
         border-radius: var(--border-radius);
         background: var(--zinc-900);
-        min-height: 80px;
-        transition: border-color 0.3s;
+        transition: border-color 0.3s, opacity 0.3s, max-height 0.3s;
+        display: none;
     }
 
     .detail-area.has-content {
-        border-color: rgba(249,115,22,0.2);
+        display: block;
     }
 
     .detail-header {
@@ -416,12 +626,6 @@
         padding: 16px 24px;
         border-bottom: 1px solid var(--zinc-800);
         min-height: 54px;
-    }
-
-    .detail-hint {
-        font-family: var(--font-mono);
-        font-size: 0.8125rem;
-        color: var(--zinc-500);
     }
 
     .detail-header h3 {
@@ -475,13 +679,25 @@
     .detail-body :global(.doc-link:hover) { color: var(--amber-500); }
 
     @media (max-width: 768px) {
-        .section-heading { font-size: 1.75rem; }
         .daemon-internals { grid-template-columns: 1fr 1fr; }
-        .vm-internals { grid-template-columns: 1fr; }
+        .vm-storage-row { flex-direction: column; gap: 14px; }
+        .host-storage {
+            border-left: none;
+            border-top: 1px dashed var(--zinc-700);
+            margin-left: 0;
+            padding-left: 0;
+            padding-top: 14px;
+            flex-direction: row;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .storage-header { flex-direction: row; gap: 8px; align-items: center; width: 100%; margin-bottom: 2px; }
+        .lohar-grid { grid-template-columns: 1fr 1fr; }
+        .layer--vm { box-shadow: none; }
         .net-row { flex-wrap: wrap; gap: 6px; }
         .net-line { display: none; }
+        .net-boundary { margin: 14px 16px; }
         .layer--host { padding: 28px 14px 14px; }
-        .flow-channel { margin: 0 16px; }
         .detail-body :global(.eg) { grid-template-columns: 1fr; }
     }
 </style>
@@ -552,7 +768,7 @@ fc_state    <span class="cm">— per-VM Firecracker config for recovery</span></
         },
         "wire-protocol": {
             title: "Wire Protocol",
-            html: `<p>Custom binary framing over TCP. Same protocol over vsock (cold boot), TCP (post-snapshot), or Unix sockets (tests run on macOS without a VM).</p>
+            html: `<p>Custom binary framing over TCP. Same protocol over vsock (cold boot), TCP (post-snapshot), or Unix sockets (tests run on macOS without a VM). Host always initiates connections to the guest agent.</p>
 <div class="eg"><div><h4>Frame format</h4><pre>┌────────────────┬───────────┬──────────────────────┐
 │ Length (4B BE)  │ Type (1B) │ Payload (N bytes)    │
 └────────────────┴───────────┴──────────────────────┘
@@ -576,13 +792,13 @@ Max frame: 1MB.</pre><h4>Atomic writes</h4><p>Piped exec has stdout+stderr gorou
         },
         "vm": {
             title: "Firecracker microVM",
-            html: `<p>Each sandbox is a real Linux VM — own kernel, filesystem, process isolation. Firecracker boots a minimal kernel with lohar as PID 1.</p>
-<div class="eg"><div><h4>Disk layout</h4><pre>/var/lib/bhatti/sandboxes/&lt;id&gt;/
+            html: `<p>Each sandbox is a real Linux VM — own kernel, filesystem, process isolation. Firecracker boots a minimal kernel with lohar as PID 1. One daemon manages N VMs, each with its own TAP device, IP, and thermal state.</p>
+<div class="eg"><div><h4>Disk layout (host-side)</h4><pre>/var/lib/bhatti/sandboxes/&lt;id&gt;/
 ├── rootfs.ext4     <span class="cm">CoW copy of base</span>
 ├── config.ext4     <span class="cm">1MB: hostname, token, env</span>
 ├── vol-*.ext4      <span class="cm">attached volumes</span>
 ├── mem.snap        <span class="cm">memory snapshot (cold)</span>
-└── vm.snap         <span class="cm">VM state snapshot (cold)</span></pre></div>
+└── vm.snap         <span class="cm">VM state snapshot (cold)</span></pre><p>Files live on the host — passed to Firecracker as virtio-blk drives. Mounted inside the guest by lohar.</p></div>
 <div><h4>Post-snapshot</h4><p>Virtio-net survives snapshot/restore. Vsock does not — lohar listens on both, host uses TCP post-restore. TAP devices kept alive across snapshots.</p>
 <h4>Config drive</h4><p>1MB ext4 image attached as <code>/dev/vdb</code>. Hostname, auth token, env vars, secrets, DNS, init script, volumes — all injected before boot. No exec-after-boot configuration.</p></div></div>`
         },
@@ -636,10 +852,11 @@ $ bhatti create --name dev \\
 <p>On engine startup, orphaned TAP devices from previous crashes are cleaned up by listing all <code>tun</code> type devices and deleting any <code>tap*</code> device not in the known set.</p>`
         },
         "net-eth0": {
-            title: "eth0 (kernel ip=)",
+            title: "eth0 (kernel ip=) — Guest Side",
             html: `<p>The guest IP is configured via the kernel <code>ip=</code> command-line parameter, passed through Firecracker's boot args:</p>
 <pre>ip=192.168.137.2::192.168.137.1:255.255.255.0::eth0:off:1.1.1.1:8.8.8.8:</pre>
 <p>This configures eth0 with IP, gateway, netmask, and DNS <strong>before init runs</strong>. By the time lohar starts, the network is already up.</p>
+<p>eth0 lives inside the VM — it's the guest-side endpoint of the virtio-net device. The host-side endpoint is the TAP device attached to the bridge.</p>
 <h4>Why not DHCP?</h4><p>The host polls lohar via TCP to detect readiness. If lohar configures networking, the host can't reach lohar to tell it what IP to use — chicken-and-egg. Kernel <code>ip=</code> solves this: zero dependencies, zero latency, zero failure modes.</p>`
         },
         "net-nat": {
@@ -651,7 +868,6 @@ $ bhatti create --name dev \\
 
     let active: string | null = null;
     const area = document.getElementById('detail-area')!;
-    const hint = document.getElementById('detail-hint')!;
     const titleEl = document.getElementById('detail-title')!;
     const closeBtn = document.getElementById('detail-close')!;
     const body = document.getElementById('detail-body')!;
@@ -663,20 +879,16 @@ $ bhatti create --name dev \\
         document.querySelectorAll<HTMLElement>('.active').forEach(el => el.classList.remove('active'));
         document.querySelector<HTMLElement>(`[data-explore="${key}"]`)?.classList.add('active');
 
-        hint.style.display = 'none';
-        titleEl.style.display = '';
         titleEl.textContent = c.title;
-        closeBtn.style.display = '';
         body.innerHTML = c.html;
         area.classList.add('has-content');
         active = key;
+
+        area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
     function close() {
         document.querySelectorAll<HTMLElement>('.active').forEach(el => el.classList.remove('active'));
-        hint.style.display = '';
-        titleEl.style.display = 'none';
-        closeBtn.style.display = 'none';
         body.innerHTML = '';
         area.classList.remove('has-content');
         active = null;
