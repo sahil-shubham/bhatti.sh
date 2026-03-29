@@ -3,20 +3,21 @@ const useCases = [
     {
         title: "AI Coding Agents",
         description: "Give LLMs a real, stateful environment to execute code, install packages, and run tests — with full VM isolation between tenants.",
-        code: `<span class="c">// Your agent framework</span>
-sandbox = bhatti.create(cpus=2, memory=1024)
+        code: `<span class="c"># REST API — what your agent framework calls</span>
+$ curl -X POST /sandboxes \\
+    -d '{"name":"agent","cpus":2,"memory":1024}'
 
-<span class="c">// Full exec with streaming output</span>
-sandbox.exec("npm init -y")
-sandbox.exec("npm install express")
-result = sandbox.exec("npm test")
+<span class="c"># Exec with streaming output (NDJSON)</span>
+$ curl -N -H "Accept: application/x-ndjson" \\
+    -d '{"cmd":["npm","test"]}' \\
+    /sandboxes/\$ID/exec
 
-<span class="c">// File operations (atomic writes)</span>
-sandbox.file_write("/workspace/app.js", code)
-sandbox.file_read("/workspace/package.json")
+<span class="c"># Atomic file writes</span>
+$ curl -X PUT /sandboxes/\$ID/files?path=/app.js \\
+    --data-binary @app.js
 
-<span class="c">// Pause for free, resume in ~400µs</span>
-sandbox.destroy()`
+<span class="c"># Server-side truncated reads (offset/limit)</span>
+$ curl /sandboxes/\$ID/files?path=/app.log\\&limit=100`
     },
     {
         title: "Disposable Dev Environments",

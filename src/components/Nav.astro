@@ -1,7 +1,7 @@
 ---
 const links = [
-    { label: "Docs", href: "https://github.com/sahil-shubham/bhatti/tree/main/docs" },
-    { label: "GitHub", href: "https://github.com/sahil-shubham/bhatti" },
+    { label: "Docs", href: "#docs" },
+    { label: "GitHub", href: "https://github.com/sahil-shubham/bhatti", id: "gh-link", external: true },
 ];
 ---
 
@@ -10,7 +10,11 @@ const links = [
         <a href="/" class="logo">[bhatti]</a>
         <div class="nav-links">
             {links.map(link => (
-                <a href={link.href} target="_blank" rel="noopener">{link.label}</a>
+                <a
+                    href={link.href}
+                    {...(link.external ? { target: "_blank", rel: "noopener" } : {})}
+                    id={link.id}
+                >{link.label}{link.id === 'gh-link' && <span class="gh-stars" id="gh-stars"></span>}</a>
             ))}
             <a href="#get-started" class="btn btn-amber">Get Started</a>
         </div>
@@ -26,7 +30,10 @@ const links = [
 <div class="mobile-menu" id="mobile-menu">
     <div class="mobile-menu-links">
         {links.map(link => (
-            <a href={link.href} target="_blank" rel="noopener">{link.label}</a>
+            <a
+                href={link.href}
+                {...(link.external ? { target: "_blank", rel: "noopener" } : {})}
+            >{link.label}</a>
         ))}
         <a href="#get-started" class="btn btn-amber" style="width: 100%; margin-top: 8px;">Get Started</a>
     </div>
@@ -131,6 +138,17 @@ const links = [
         text-decoration: none;
     }
 
+    .gh-stars {
+        font-size: 0.75rem;
+        margin-left: 6px;
+        opacity: 0;
+        transition: opacity 0.3s;
+    }
+
+    .gh-stars.loaded {
+        opacity: 1;
+    }
+
     @media (max-width: 768px) {
         .nav-links {
             display: none;
@@ -166,6 +184,23 @@ const links = [
             menu?.classList.remove('open');
         });
     });
+
+    // Deferred GitHub stars — loads after page is idle, no flash, no perf impact
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(async () => {
+            try {
+                const res = await fetch('https://api.github.com/repos/sahil-shubham/bhatti');
+                const { stargazers_count } = await res.json();
+                if (stargazers_count != null) {
+                    const el = document.getElementById('gh-stars');
+                    if (el) {
+                        el.textContent = `★ ${stargazers_count}`;
+                        el.classList.add('loaded');
+                    }
+                }
+            } catch {}
+        });
+    }
 
     // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {

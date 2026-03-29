@@ -1,0 +1,385 @@
+---
+// Terminal animation — chunked typing with streaming output
+---
+
+<div class="hero-terminal" id="hero-terminal">
+    <div class="terminal-chrome">
+        <div class="terminal-dots">
+            <div class="terminal-dot"></div>
+            <div class="terminal-dot"></div>
+            <div class="terminal-dot"></div>
+        </div>
+        <div class="terminal-tabs">
+            <button class="terminal-tab active" data-scene="0">create + exec</button>
+            <button class="terminal-tab" data-scene="1">streaming exec</button>
+            <button class="terminal-tab" data-scene="2">shell + resume</button>
+        </div>
+    </div>
+    <div id="hero-xterm"></div>
+</div>
+
+<style>
+    .hero-terminal {
+        border: 1px solid var(--zinc-800);
+        border-radius: var(--border-radius);
+        overflow: hidden;
+        box-shadow: 0 24px 48px rgba(0,0,0,0.5);
+        display: flex;
+        flex-direction: column;
+        height: 350px;
+    }
+
+    .terminal-chrome {
+        height: 36px;
+        background: var(--zinc-900);
+        border-bottom: 1px solid var(--zinc-800);
+        display: flex;
+        align-items: center;
+        padding: 0 16px;
+        gap: 16px;
+        flex-shrink: 0;
+    }
+
+    .terminal-dots {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+    }
+
+    .terminal-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--zinc-700);
+    }
+
+    .terminal-tabs {
+        display: flex;
+        gap: 2px;
+        overflow-x: auto;
+    }
+
+    .terminal-tab {
+        background: none;
+        border: none;
+        color: var(--zinc-500);
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        padding: 4px 10px;
+        cursor: pointer;
+        border-radius: 3px;
+        transition: color 0.2s, background 0.2s;
+        white-space: nowrap;
+    }
+
+    .terminal-tab:hover { color: var(--zinc-300); }
+
+    .terminal-tab.active {
+        color: var(--zinc-50);
+        background: var(--zinc-800);
+    }
+
+    #hero-xterm {
+        flex: 1;
+        min-height: 0;
+        background: #09090b;
+        overflow: hidden;
+    }
+
+    #hero-xterm :global(.xterm) {
+        height: 100%;
+        padding: 12px 0 12px 12px;
+    }
+
+    #hero-xterm :global(.xterm-viewport) {
+        scrollbar-width: none;
+    }
+
+    #hero-xterm :global(.xterm-viewport::-webkit-scrollbar) {
+        display: none;
+    }
+</style>
+
+<script>
+    import { Terminal } from '@xterm/xterm';
+    import { FitAddon } from '@xterm/addon-fit';
+    import '@xterm/xterm/css/xterm.css';
+
+    // --- Step types ---
+    type Step =
+        | { type: 'cmd'; text: string }          // typed with natural rhythm
+        | { type: 'out'; text: string }           // single line, appears immediately
+        | { type: 'stream'; lines: string[]; interval: number }  // lines appear one by one
+        | { type: 'wait'; ms: number }            // pause
+        | { type: 'prompt' }                      // show $ prompt
+        | { type: 'prompt-vm'; host: string }     // show lohar@host:/workspace$
+        | { type: 'comment'; text: string };      // dim comment after prompt
+
+    const DIM = '\x1b[2m';
+    const RST = '\x1b[0m';
+    const AMB = '\x1b[38;5;208m';
+    const YEL = '\x1b[33m';
+    const GRN = '\x1b[32m';
+    const PROMPT = `${AMB}\$${RST} `;
+
+    // --- Scenes ---
+    const scenes: Step[][] = [
+        // Scene 0: Create + exec — shows boot time vs exec speed
+        [
+            { type: 'prompt' },
+            { type: 'cmd', text: 'bhatti create --name dev --cpus 2 --memory 1024' },
+            { type: 'wait', ms: 3400 },
+            { type: 'out', text: `Created sandbox ${DIM}"dev"${RST} (a1b2c3d4) in 3.4s` },
+            { type: 'wait', ms: 400 },
+
+            { type: 'prompt' },
+            { type: 'cmd', text: 'bhatti exec dev -- uname -a' },
+            { type: 'wait', ms: 80 },
+            { type: 'out', text: 'Linux dev 6.1.155 #1 SMP x86_64 GNU/Linux' },
+            { type: 'wait', ms: 500 },
+
+            { type: 'prompt' },
+            { type: 'cmd', text: 'bhatti exec dev -- node -e "console.log(\'hello from firecracker\')"' },
+            { type: 'wait', ms: 100 },
+            { type: 'out', text: 'hello from firecracker' },
+            { type: 'wait', ms: 500 },
+
+            { type: 'prompt' },
+            { type: 'cmd', text: 'bhatti exec dev -- cat /etc/os-release | head -2' },
+            { type: 'wait', ms: 60 },
+            { type: 'out', text: 'PRETTY_NAME="Ubuntu 24.04.2 LTS"' },
+            { type: 'out', text: 'NAME="Ubuntu"' },
+            { type: 'wait', ms: 600 },
+
+            { type: 'prompt' },
+            { type: 'cmd', text: 'bhatti exec dev -- echo "1ms exec on a real VM"' },
+            { type: 'wait', ms: 50 },
+            { type: 'out', text: '1ms exec on a real VM' },
+        ],
+
+        // Scene 1: Streaming exec — npm install with live NDJSON output
+        [
+            { type: 'prompt' },
+            { type: 'cmd', text: 'bhatti create --name api --init "npm install && npm start"' },
+            { type: 'wait', ms: 3500 },
+            { type: 'out', text: `Created sandbox ${DIM}"api"${RST} (f7e8d9c0) in 3.5s` },
+            { type: 'wait', ms: 600 },
+
+            { type: 'prompt' },
+            { type: 'comment', text: '# streaming exec — output arrives as NDJSON, line by line' },
+            { type: 'prompt' },
+            { type: 'cmd', text: 'bhatti exec api -- npm install express' },
+            { type: 'wait', ms: 300 },
+            { type: 'stream', interval: 400, lines: [
+                `${DIM}added 65 packages in 2.1s${RST}`,
+                '',
+                `${DIM}14 packages are looking for funding${RST}`,
+                `${DIM}  run \`npm fund\` for details${RST}`,
+            ]},
+            { type: 'wait', ms: 500 },
+
+            { type: 'prompt' },
+            { type: 'cmd', text: 'bhatti exec api -- node -e "require(\'express\')().listen(3000, () => console.log(\'listening\'))"' },
+            { type: 'wait', ms: 200 },
+            { type: 'out', text: 'listening' },
+            { type: 'wait', ms: 400 },
+
+            { type: 'prompt' },
+            { type: 'cmd', text: 'bhatti exec api -- curl -s localhost:3000/' },
+            { type: 'wait', ms: 80 },
+            { type: 'out', text: `${DIM}<!DOCTYPE html><html>...${RST}` },
+            { type: 'wait', ms: 400 },
+
+            { type: 'prompt' },
+            { type: 'comment', text: '# port 3000 auto-detected → proxied through daemon' },
+        ],
+
+        // Scene 2: Shell, detach, auto-pause, instant resume
+        [
+            { type: 'prompt' },
+            { type: 'cmd', text: 'bhatti shell dev' },
+            { type: 'wait', ms: 300 },
+            { type: 'prompt-vm', host: 'dev' },
+            { type: 'cmd', text: 'ls' },
+            { type: 'wait', ms: 40 },
+            { type: 'out', text: `${GRN}node_modules${RST}  package.json  package-lock.json  ${GRN}src${RST}` },
+            { type: 'wait', ms: 400 },
+
+            { type: 'prompt-vm', host: 'dev' },
+            { type: 'cmd', text: 'npm run build' },
+            { type: 'wait', ms: 200 },
+            { type: 'stream', interval: 500, lines: [
+                '> build',
+                '> tsc && node esbuild.js',
+                '',
+                `${GRN}✓${RST} compiled 847 modules in 2.1s`,
+            ]},
+            { type: 'wait', ms: 600 },
+
+            { type: 'prompt-vm', host: 'dev' },
+            { type: 'out', text: '' },
+            { type: 'out', text: `${YEL}[detached — Ctrl+\\]${RST}` },
+            { type: 'wait', ms: 800 },
+
+            { type: 'prompt' },
+            { type: 'comment', text: '# sandbox auto-paused after 30s idle (vCPUs frozen)' },
+            { type: 'wait', ms: 800 },
+
+            { type: 'prompt' },
+            { type: 'cmd', text: 'bhatti exec dev -- echo "instant"' },
+            { type: 'wait', ms: 50 },
+            { type: 'out', text: `${DIM}[warm → hot in 0.4ms]${RST}` },
+            { type: 'out', text: 'instant' },
+            { type: 'wait', ms: 600 },
+
+            { type: 'prompt' },
+            { type: 'cmd', text: 'bhatti shell dev' },
+            { type: 'wait', ms: 100 },
+            { type: 'stream', interval: 30, lines: [
+                `${DIM}> build${RST}`,
+                `${DIM}> tsc && node esbuild.js${RST}`,
+                `${DIM}${RST}`,
+                `${DIM}${GRN}✓${RST}${DIM} compiled 847 modules in 2.1s${RST}`,
+            ]},
+            { type: 'out', text: '' },
+            { type: 'prompt-vm', host: 'dev' },
+        ],
+    ];
+
+    // --- Typing engine ---
+    let term: Terminal | null = null;
+    let fitAddon: FitAddon | null = null;
+    let abort: AbortController | null = null;
+
+    function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+        return new Promise((resolve, reject) => {
+            const t = setTimeout(resolve, ms);
+            signal?.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('', 'AbortError')); });
+        });
+    }
+
+    // Type a command with natural chunked rhythm
+    // Split into tokens, type each token fast, pause between tokens
+    async function typeCommand(text: string, signal?: AbortSignal) {
+        const tokens = text.match(/\S+|\s+/g) || [text];
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i];
+            // Type each character in the token with fast, slightly variable speed
+            for (const ch of token) {
+                if (signal?.aborted) throw new DOMException('', 'AbortError');
+                term!.write(ch);
+                // Base speed ~18ms, slight jitter, occasional micro-pause
+                const delay = 16 + Math.random() * 12;
+                await sleep(delay, signal);
+            }
+            // Pause between non-whitespace tokens (the "thinking" gap)
+            if (i < tokens.length - 1 && !/^\s+$/.test(token)) {
+                await sleep(60 + Math.random() * 100, signal);
+            }
+        }
+        term!.write('\r\n');
+    }
+
+    // Stream lines with staggered timing
+    async function streamLines(lines: string[], interval: number, signal?: AbortSignal) {
+        for (const line of lines) {
+            if (signal?.aborted) throw new DOMException('', 'AbortError');
+            term!.writeln(line);
+            await sleep(interval + Math.random() * interval * 0.3, signal);
+        }
+    }
+
+    async function playScene(index: number) {
+        if (abort) abort.abort();
+        abort = new AbortController();
+        const signal = abort.signal;
+
+        document.querySelectorAll('.terminal-tab').forEach((t, i) => t.classList.toggle('active', i === index));
+
+        term!.reset();
+        term!.options.cursorBlink = false;
+
+        try {
+            for (const step of scenes[index]) {
+                if (signal.aborted) break;
+
+                switch (step.type) {
+                    case 'prompt':
+                        term!.write(PROMPT);
+                        break;
+                    case 'prompt-vm':
+                        term!.write(`${AMB}lohar@${step.host}:/workspace\$${RST} `);
+                        break;
+                    case 'cmd':
+                        await typeCommand(step.text, signal);
+                        break;
+                    case 'out':
+                        term!.writeln(step.text);
+                        break;
+                    case 'stream':
+                        await streamLines(step.lines, step.interval, signal);
+                        break;
+                    case 'wait':
+                        await sleep(step.ms, signal);
+                        break;
+                    case 'comment':
+                        term!.write(`${DIM}${step.text}${RST}\r\n`);
+                        break;
+                }
+            }
+
+            if (!signal.aborted) {
+                term!.options.cursorBlink = true;
+                await sleep(6000, signal);
+                if (!signal.aborted) playScene((index + 1) % scenes.length);
+            }
+        } catch (e) {
+            if ((e as DOMException).name !== 'AbortError') throw e;
+        }
+    }
+
+    function init() {
+        const container = document.getElementById('hero-xterm');
+        if (!container || term) return;
+
+        term = new Terminal({
+            cursorBlink: false,
+            disableStdin: true,
+            fontSize: 13,
+            lineHeight: 1.4,
+            fontFamily: "'Geist Mono', 'SF Mono', Menlo, monospace",
+            theme: {
+                background: '#09090b',
+                foreground: '#e4e4e7',
+                cursor: '#F97316',
+                black: '#3f3f46', red: '#ef4444', green: '#22c55e', yellow: '#eab308',
+                blue: '#3b82f6', magenta: '#a855f7', cyan: '#06b6d4', white: '#d4d4d8',
+                brightBlack: '#71717a', brightWhite: '#fafafa',
+            },
+            scrollback: 100,
+            convertEol: true,
+        });
+
+        fitAddon = new FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(container);
+        fitAddon.fit();
+        playScene(0);
+    }
+
+    // Tab clicks
+    document.querySelectorAll('.terminal-tab').forEach(tab => {
+        tab.addEventListener('click', () => playScene(parseInt((tab as HTMLElement).dataset.scene || '0')));
+    });
+
+    // Resize
+    let rt: number;
+    window.addEventListener('resize', () => { clearTimeout(rt); rt = window.setTimeout(() => fitAddon?.fit(), 150); });
+
+    // Lazy init on visible
+    const obs = new IntersectionObserver(entries => {
+        if (entries[0]?.isIntersecting) { init(); obs.disconnect(); }
+    }, { threshold: 0.1 });
+    const el = document.getElementById('hero-terminal');
+    if (el) obs.observe(el);
+</script>

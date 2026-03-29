@@ -1,14 +1,13 @@
 ---
-
+import HeroTerminal from './HeroTerminal.astro';
 ---
 
 <section class="hero">
-    <div class="container grid-2">
+    <div class="container hero-layout">
         <div class="hero-content">
-            <span class="system-label">SYS.INIT // V0.1</span>
-            <h1>Programmable Linux on your own hardware.</h1>
+            <h1>Self-hosted sandbox orchestrator.</h1>
             <p class="subhead">
-                Open-source Firecracker microVM orchestrator. Each sandbox is a real Linux VM — own kernel, own filesystem, full process isolation. Created in seconds, paused for free, resumed in microseconds.
+                Each sandbox is a Firecracker microVM with its own kernel, filesystem, and network. Idle VMs pause automatically and resume in microseconds. Runs on any Linux machine with KVM.
             </p>
 
             <div class="hero-actions">
@@ -17,120 +16,83 @@
                     <button class="copy-btn" data-copy="install-cmd">Copy</button>
                 </div>
                 <a href="https://github.com/sahil-shubham/bhatti" target="_blank" rel="noopener" class="btn btn-outline">
-                    View on GitHub →
+                    GitHub →
                 </a>
             </div>
-
-            <div class="hero-meta">
-                <span>Open source</span>
-                <span>·</span>
-                <span>Apache 2.0</span>
-                <span>·</span>
-                <span>~12,000 lines of Go</span>
-            </div>
         </div>
 
-        <div class="terminal">
-            <div class="terminal-header">
-                <div class="terminal-dots">
-                    <div class="terminal-dot"></div>
-                    <div class="terminal-dot"></div>
-                    <div class="terminal-dot"></div>
-                </div>
-            </div>
-            <div class="terminal-body">
-                <div class="prompt">bhatti create --name dev --cpus 2 --memory 1024</div>
-                <div class="output">Created sandbox "dev" (a1b2c3d4) in 3.4s</div>
-                <div class="prompt">bhatti exec dev -- uname -a</div>
-                <div class="output">Linux dev 6.1.155 #1 SMP aarch64 GNU/Linux</div>
-                <div class="prompt">bhatti exec dev -- node --version</div>
-                <div class="output">v22.16.0</div>
-                <div class="prompt">bhatti shell dev</div>
-                <div class="shell-prompt">lohar@dev:/workspace$ <span class="cursor"></span></div>
-            </div>
-        </div>
+        <HeroTerminal />
     </div>
 </section>
 
 <style>
     .hero {
-        padding-top: 180px;
-        padding-bottom: 80px;
+        padding-top: 140px;
+        padding-bottom: 60px;
     }
 
     .hero::before { display: none; }
 
+    .hero-layout {
+        display: grid;
+        grid-template-columns: 5fr 7fr;
+        gap: 48px;
+        align-items: start;
+    }
+
     .hero-content {
         display: flex;
         flex-direction: column;
-        gap: 32px;
+        gap: 20px;
+        padding-top: 4px; /* optical alignment with terminal chrome */
     }
 
     .hero h1 {
-        font-size: clamp(3rem, 5vw, 4.5rem);
+        font-size: clamp(2rem, 3.2vw, 2.75rem);
         color: var(--zinc-50);
     }
 
     .hero .subhead {
-        font-size: 1.125rem;
+        font-size: 0.9375rem;
         color: var(--zinc-400);
-        max-width: 90%;
-        line-height: 1.5;
+        line-height: 1.6;
     }
 
     .hero-actions {
         display: flex;
-        gap: 16px;
+        gap: 12px;
         align-items: center;
         flex-wrap: wrap;
     }
 
-    .hero-meta {
-        font-family: var(--font-mono);
-        font-size: 0.75rem;
-        color: var(--zinc-400);
-        display: flex;
-        gap: 12px;
-        align-items: center;
-    }
-
-    .shell-prompt {
-        color: var(--amber-500);
-        margin-top: 8px;
-    }
-
     @media (max-width: 768px) {
         .hero {
-            padding-top: 120px;
+            padding-top: 100px;
+        }
+
+        .hero-layout {
+            grid-template-columns: 1fr;
+            gap: 32px;
         }
 
         .hero h1 {
-            font-size: 2.5rem;
-        }
-
-        .hero .subhead {
-            max-width: 100%;
+            font-size: 2rem;
         }
     }
 </style>
 
 <script>
-    // Copy button handler
     document.querySelectorAll('[data-copy]').forEach(btn => {
         btn.addEventListener('click', () => {
-            const targetId = (btn as HTMLElement).dataset.copy;
-            if (!targetId) return;
-            const el = document.getElementById(targetId);
+            const id = (btn as HTMLElement).dataset.copy;
+            if (!id) return;
+            const el = document.getElementById(id);
             if (!el) return;
-            const text = el.innerText;
-            navigator.clipboard.writeText(text).then(() => {
-                const original = btn.textContent;
+            navigator.clipboard.writeText(el.innerText).then(() => {
+                const orig = btn.textContent;
                 btn.textContent = 'Copied!';
                 (btn as HTMLElement).style.color = 'var(--zinc-50)';
-                setTimeout(() => {
-                    btn.textContent = original;
-                    (btn as HTMLElement).style.color = '';
-                }, 2000);
+                setTimeout(() => { btn.textContent = orig; (btn as HTMLElement).style.color = ''; }, 2000);
             });
         });
     });
