@@ -1,0 +1,129 @@
+---
+const rows = [
+    { cap: "Isolation", bhatti: "Hardware (VM)", docker: "Kernel (Namespaces)", e2b: "Hardware (VM)", fly: "Hardware (VM)", bhattiWin: true, dockerLose: true },
+    { cap: "Cold Start", bhatti: "~3.5s", docker: "~10ms", e2b: "~5s", fly: "~300ms", dockerWin: true },
+    { cap: "Memory Snapshots", bhatti: "Yes (full + diff)", docker: "No", e2b: "No", fly: "No", bhattiWin: true, dockerLose: true, e2bLose: true, flyLose: true },
+    { cap: "Pause/Resume", bhatti: "~400µs / ~50ms", docker: "No", e2b: "No", fly: "Seconds", bhattiWin: true, dockerLose: true, e2bLose: true },
+    { cap: "Self-Hostable", bhatti: "Yes", docker: "Yes", e2b: "No (Managed)", fly: "No (Managed)", bhattiWin: true, e2bLose: true, flyLose: true },
+    { cap: "Open Source", bhatti: "Apache 2.0", docker: "Apache 2.0", e2b: "Apache 2.0", fly: "Proprietary", flyLose: true },
+    { cap: "Multi-Tenant", bhatti: "Built-in", docker: "Manual", e2b: "Built-in", fly: "Built-in", bhattiWin: true },
+    { cap: "GPU Support", bhatti: "No", docker: "Yes", e2b: "Yes", fly: "Yes", bhattiLose: true, dockerWin: true },
+    { cap: "Managed Service", bhatti: "No", docker: "No", e2b: "Yes", fly: "Yes", bhattiLose: true },
+];
+
+const antiPitchItems = [
+    "You need managed global infrastructure — use E2B or Fly Machines.",
+    "You need GPU passthrough for ML workloads — Firecracker doesn't support GPUs.",
+    "You need Windows VMs — Linux guests only.",
+    "You want 10ms cold starts over hardware isolation — use Docker.",
+];
+---
+
+<section id="comparison">
+    <div class="container">
+        <span class="system-label">SYS.COMPARISON</span>
+        <h2 class="section-heading mb-64">The landscape.</h2>
+
+        <div class="table-container mb-32">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="cap-header">Capability</th>
+                        <th class="bhatti-col">bhatti</th>
+                        <th>Docker</th>
+                        <th>E2B</th>
+                        <th>Fly Machines</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows.map(row => (
+                        <tr>
+                            <td class="cap-cell">{row.cap}</td>
+                            <td class:list={["bhatti-cell", { win: row.bhattiWin, lose: row.bhattiLose }]}>{row.bhatti}</td>
+                            <td class:list={[{ win: row.dockerWin, lose: row.dockerLose }]}>{row.docker}</td>
+                            <td class:list={[{ win: row.e2bWin, lose: row.e2bLose }]}>{row.e2b}</td>
+                            <td class:list={[{ win: row.flyWin, lose: row.flyLose }]}>{row.fly}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="anti-pitch">
+            <h4 style="color: var(--amber-500);">When bhatti is not the right choice</h4>
+            <ul>
+                {antiPitchItems.map(item => (
+                    <li>{item}</li>
+                ))}
+            </ul>
+        </div>
+    </div>
+</section>
+
+<style>
+    .section-heading {
+        font-size: 2.5rem;
+    }
+
+    .table-container {
+        width: 100%;
+        overflow-x: auto;
+        border: 1px solid var(--zinc-800);
+        border-radius: var(--border-radius);
+        background: var(--zinc-900);
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: center;
+    }
+
+    th, td {
+        padding: 16px;
+        border-bottom: 1px solid var(--zinc-800);
+        font-size: 0.875rem;
+    }
+
+    th {
+        font-family: var(--font-mono);
+        font-weight: 400;
+        color: var(--zinc-400);
+        text-transform: uppercase;
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+    }
+
+    .cap-header, .cap-cell {
+        text-align: left;
+    }
+
+    .bhatti-col {
+        color: var(--amber-500);
+    }
+
+    .bhatti-cell {
+        font-weight: 500;
+        background: rgba(249, 115, 22, 0.02);
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .win { color: var(--amber-500); }
+    .lose { color: var(--zinc-500); }
+
+    @media (max-width: 768px) {
+        .table-container {
+            border-right: none;
+            border-left: none;
+            border-radius: 0;
+            margin-left: -24px;
+            width: calc(100% + 48px);
+        }
+
+        th, td {
+            padding: 12px 8px;
+            font-size: 0.75rem;
+        }
+    }
+</style>

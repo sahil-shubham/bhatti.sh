@@ -1,0 +1,1137 @@
+<html lang="en" vid="0"><head vid="1">
+    <meta charset="UTF-8" vid="2">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" vid="3">
+    <title vid="4">bhatti.sh - Programmable Linux on your own hardware</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" vid="5">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" vid="6">
+    <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@100..900&amp;family=Geist:wght@100..900&amp;display=swap" rel="stylesheet" vid="7">
+    <style vid="8">
+        :root {
+            --zinc-950: #09090B;
+            --zinc-900: #18181B;
+            --zinc-800: #27272A;
+            --zinc-700: #3F3F46;
+            --zinc-400: #A1A1AA;
+            --zinc-300: #D4D4D8;
+            --zinc-50:  #FAFAFA;
+            
+            --amber-400: #FB923C;
+            --amber-500: #F97316;
+            --amber-600: #EA580C;
+            --amber-glow: rgba(249, 115, 22, 0.15);
+            
+            --font-sans: 'Geist', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            
+            --nav-height: 64px;
+            --border-radius: 4px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--zinc-950);
+            color: var(--zinc-50);
+            font-family: var(--font-sans);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            overflow-x: hidden;
+        }
+
+        ::selection {
+            background-color: var(--amber-500);
+            color: var(--zinc-950);
+        }
+
+        
+        h1, h2, h3, h4 {
+            font-weight: 500;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
+        }
+
+        .mono { font-family: var(--font-mono); }
+        .text-muted { color: var(--zinc-400); }
+        .text-amber { color: var(--amber-500); }
+        .text-sm { font-size: 0.875rem; }
+        .text-xs { font-size: 0.75rem; }
+        .uppercase { text-transform: uppercase; letter-spacing: 0.05em; }
+
+        .system-label {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--zinc-400);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 1rem;
+            display: block;
+        }
+
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        section {
+            padding: 120px 0;
+            position: relative;
+        }
+        
+        section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 24px;
+            right: 24px;
+            height: 1px;
+            background: var(--zinc-800);
+            max-width: 1152px;
+            margin: 0 auto;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 64px;
+        }
+
+        
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            height: var(--nav-height);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            transition: background-color 0.3s ease, border-bottom 0.3s ease;
+        }
+
+        nav.scrolled {
+            background-color: rgba(9, 9, 11, 0.8);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--zinc-800);
+        }
+
+        .nav-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+
+        .logo {
+            font-family: var(--font-mono);
+            font-weight: 600;
+            font-size: 1.125rem;
+            text-decoration: none;
+            color: var(--zinc-50);
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .nav-links a {
+            color: var(--zinc-400);
+            text-decoration: none;
+            font-size: 0.875rem;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--zinc-50);
+        }
+
+        
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 16px;
+            height: 40px;
+            border-radius: var(--border-radius);
+            font-size: 0.875rem;
+            font-weight: 500;
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+        }
+
+        .btn-amber {
+            background-color: var(--amber-500);
+            color: var(--zinc-950);
+        }
+
+        .btn-amber:hover {
+            background-color: var(--amber-400);
+            box-shadow: 0 0 12px var(--amber-glow);
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            border: 1px solid var(--zinc-800);
+            color: var(--zinc-50);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--zinc-400);
+            background-color: var(--zinc-900);
+        }
+
+        
+        .hero {
+            padding-top: 180px;
+            padding-bottom: 80px;
+        }
+        
+        .hero::before { display: none; } 
+
+        .hero-content {
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+        }
+
+        .hero h1 {
+            font-size: clamp(3rem, 5vw, 4.5rem);
+            color: var(--zinc-50);
+        }
+
+        .hero p.subhead {
+            font-size: 1.125rem;
+            color: var(--zinc-400);
+            max-width: 90%;
+            line-height: 1.5;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .copy-block {
+            display: flex;
+            align-items: center;
+            background: var(--zinc-900);
+            border: 1px solid var(--zinc-800);
+            border-radius: var(--border-radius);
+            height: 40px;
+            overflow: hidden;
+        }
+
+        .copy-block code {
+            padding: 0 16px;
+            font-size: 0.875rem;
+            color: var(--amber-400);
+        }
+
+        .copy-btn {
+            background: var(--zinc-800);
+            border: none;
+            border-left: 1px solid var(--zinc-800);
+            color: var(--zinc-400);
+            height: 100%;
+            padding: 0 16px;
+            cursor: pointer;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .copy-btn:hover {
+            background: var(--zinc-700);
+            color: var(--zinc-50);
+        }
+
+        .hero-meta {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--zinc-400);
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        
+        .terminal {
+            background: #000000;
+            border: 1px solid var(--zinc-800);
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 24px 48px rgba(0,0,0,0.5);
+        }
+
+        .terminal-header {
+            height: 32px;
+            background: var(--zinc-900);
+            border-bottom: 1px solid var(--zinc-800);
+            display: flex;
+            align-items: center;
+            padding: 0 16px;
+        }
+
+        .terminal-dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .terminal-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--zinc-700);
+        }
+
+        .terminal-body {
+            padding: 24px;
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+            line-height: 1.6;
+            color: var(--zinc-300);
+            overflow-x: auto;
+        }
+
+        .prompt::before { content: "$ "; color: var(--amber-500); }
+        .output { color: var(--zinc-400); margin-bottom: 12px; }
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 15px;
+            background: var(--amber-500);
+            vertical-align: middle;
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink { 50% { opacity: 0; } }
+
+        
+        .facts-list {
+            display: flex;
+            flex-direction: column;
+            gap: 48px;
+        }
+
+        .fact-item {
+            display: grid;
+            grid-template-columns: 24px 1fr;
+            gap: 24px;
+            align-items: baseline;
+        }
+
+        .fact-number {
+            font-family: var(--font-mono);
+            color: var(--amber-500);
+            font-size: 0.875rem;
+        }
+
+        .fact-content h3 {
+            font-size: 1.5rem;
+            margin-bottom: 12px;
+        }
+
+        .fact-content p {
+            color: var(--zinc-400);
+        }
+
+        
+        .table-container {
+            width: 100%;
+            overflow-x: auto;
+            border: 1px solid var(--zinc-800);
+            border-radius: var(--border-radius);
+            background: var(--zinc-900);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th, td {
+            padding: 16px;
+            border-bottom: 1px solid var(--zinc-800);
+            font-size: 0.875rem;
+        }
+
+        th {
+            font-family: var(--font-mono);
+            font-weight: 400;
+            color: var(--zinc-400);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        td.mono { font-variant-numeric: tabular-nums; }
+        tr:last-child td { border-bottom: none; }
+        
+        
+        th:nth-child(n+2), td:nth-child(n+2) {
+            text-align: right;
+        }
+
+        
+        .diagram-container {
+            border: 1px solid var(--zinc-800);
+            border-radius: var(--border-radius);
+            padding: 40px;
+            background: var(--zinc-900);
+            margin-bottom: 64px;
+        }
+
+        .arch-grid {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr auto 1.5fr;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .arch-node {
+            border: 1px solid var(--zinc-700);
+            background: var(--zinc-950);
+            padding: 16px;
+            border-radius: var(--border-radius);
+        }
+        
+        .arch-node.highlight {
+            border-color: var(--amber-500);
+            box-shadow: inset 0 0 20px rgba(249, 115, 22, 0.05);
+        }
+
+        .arch-node h4 { font-size: 0.875rem; margin-bottom: 8px; font-family: var(--font-mono); }
+        .arch-node p { font-size: 0.75rem; color: var(--zinc-400); line-height: 1.4; }
+        .arch-node ul { list-style: none; padding-left: 0; margin-top: 8px;}
+        .arch-node li { font-size: 0.75rem; color: var(--zinc-400); display: flex; align-items: center; gap: 6px; margin-bottom: 4px;}
+        .arch-node li::before { content: '-'; color: var(--zinc-700);}
+
+        .arch-connector {
+            height: 1px;
+            width: 100%;
+            background: repeating-linear-gradient(90deg, var(--zinc-700), var(--zinc-700) 4px, transparent 4px, transparent 8px);
+        }
+
+        
+        .thermal-bar {
+            height: 80px;
+            width: 100%;
+            border-radius: var(--border-radius);
+            background: linear-gradient(90deg, 
+                var(--amber-500) 0%, 
+                #a14107 40%, 
+                var(--zinc-800) 70%, 
+                var(--zinc-900) 100%);
+            display: flex;
+            position: relative;
+            box-shadow: 0 0 40px rgba(249, 115, 22, 0.1);
+            margin-top: 24px;
+        }
+
+        .thermal-state {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 16px;
+            border-right: 1px solid rgba(0,0,0,0.2);
+            position: relative;
+        }
+        .thermal-state:last-child { border-right: none; }
+
+        .thermal-state span {
+            font-family: var(--font-mono);
+            font-size: 0.75rem;
+            color: var(--zinc-50);
+            text-transform: uppercase;
+        }
+        .thermal-state .timing {
+            color: rgba(255,255,255,0.7);
+            font-size: 0.65rem;
+            margin-top: 4px;
+        }
+
+        
+        .code-panel {
+            background: var(--zinc-900);
+            border: 1px solid var(--zinc-800);
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .code-panel-text {
+            padding: 24px;
+            border-bottom: 1px solid var(--zinc-800);
+        }
+        
+        .code-panel-text h3 { font-size: 1.125rem; margin-bottom: 8px;}
+        .code-panel-text p { font-size: 0.875rem; color: var(--zinc-400);}
+
+        .code-panel-pre {
+            padding: 24px;
+            margin: 0;
+            background: #000000;
+            flex-grow: 1;
+            overflow-x: auto;
+            font-size: 0.8125rem;
+            color: var(--zinc-300);
+        }
+
+        
+        .demo-paths {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 24px;
+        }
+
+        .demo-card {
+            border: 1px solid var(--zinc-800);
+            background: var(--zinc-900);
+            border-radius: var(--border-radius);
+            padding: 32px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .demo-card h3 { margin-bottom: 16px; font-size: 1.25rem; }
+        .demo-card p { margin-bottom: 24px; color: var(--zinc-400); font-size: 0.875rem; }
+
+        .input-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .input-group input {
+            flex: 1;
+            background: var(--zinc-950);
+            border: 1px solid var(--zinc-800);
+            padding: 0 16px;
+            color: var(--zinc-50);
+            border-radius: var(--border-radius);
+            font-family: var(--font-sans);
+            font-size: 0.875rem;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: var(--amber-500);
+        }
+
+        #api-key-display {
+            display: none;
+            margin-top: 16px;
+            padding: 16px;
+            background: var(--zinc-950);
+            border: 1px dashed var(--amber-500);
+            border-radius: var(--border-radius);
+        }
+
+        
+        .comp-table td:not(:first-child) { text-align: center; }
+        .comp-table td { font-size: 0.875rem; }
+        .comp-table tr td:nth-child(2) { color: var(--amber-500); font-weight: 500; background: rgba(249, 115, 22, 0.02); }
+        .win { color: var(--amber-500); }
+        .lose { color: var(--zinc-500); }
+
+        .anti-pitch {
+            margin-top: 32px;
+            padding: 24px;
+            border-left: 2px solid var(--zinc-700);
+            background: rgba(24, 24, 27, 0.5);
+        }
+        .anti-pitch h4 { font-family: var(--font-mono); font-size: 0.75rem; text-transform: uppercase; color: var(--zinc-400); margin-bottom: 12px;}
+        .anti-pitch ul { list-style: none; padding: 0; }
+        .anti-pitch li { color: var(--zinc-400); font-size: 0.875rem; margin-bottom: 8px; display: flex; gap: 8px;}
+        .anti-pitch li::before { content: '×'; color: var(--zinc-500); }
+
+        
+        footer {
+            padding: 64px 0;
+            border-top: 1px solid var(--zinc-800);
+            text-align: center;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            margin-bottom: 24px;
+            font-family: var(--font-mono);
+            font-size: 0.875rem;
+            color: var(--zinc-400);
+        }
+        
+        .footer-links a { color: var(--zinc-400); text-decoration: none; }
+        .footer-links a:hover { color: var(--zinc-50); }
+
+        .etymology {
+            font-size: 0.75rem;
+            color: var(--zinc-500);
+            font-style: italic;
+        }
+
+        
+        .mb-64 { margin-bottom: 64px; }
+        .mb-32 { margin-bottom: 32px; }
+        .mb-16 { margin-bottom: 16px; }
+        
+        @media (max-width: 768px) {
+            .grid-2, .demo-paths { grid-template-columns: 1fr; }
+            .arch-grid { display: flex; flex-direction: column; align-items: stretch; gap: 8px;}
+            .arch-connector { width: 1px; height: 16px; margin: 0 auto; background: repeating-linear-gradient(180deg, var(--zinc-700), var(--zinc-700) 4px, transparent 4px, transparent 8px);}
+            .hero h1 { font-size: 2.5rem; }
+            .hero { padding-top: 120px; }
+            .table-container { border-right: none; border-left: none; border-radius: 0; margin-left: -24px; width: calc(100% + 48px); padding: 0 24px;}
+        }
+    </style>
+</head>
+<body vid="9">
+
+    <nav id="navbar" vid="10">
+        <div class="container nav-inner" vid="11">
+            <a href="#" class="logo" vid="12">[bhatti]</a>
+            <div class="nav-links" vid="13">
+                <a href="https://github.com" target="_blank" rel="noopener" vid="14">GitHub</a>
+                <a href="#demo" class="btn btn-amber" vid="15">Try Demo</a>
+            </div>
+        </div>
+    </nav>
+
+    <main vid="16">
+        
+        <section class="hero" vid="17">
+            <div class="container grid-2" vid="18">
+                <div class="hero-content" vid="19">
+                    <span class="system-label" vid="20">SYS.INIT // V1.0</span>
+                    <h1 vid="21">Programmable Linux on your own hardware.</h1>
+                    <p class="subhead" vid="22">Each sandbox is a real Linux VM — own kernel, own filesystem, full process isolation. Created in seconds, paused for free, resumed in microseconds. Open source. Apache 2.0.</p>
+                    
+                    <div class="hero-actions" vid="23">
+                        <div class="copy-block" vid="24">
+                            <code id="install-cmd" vid="25">curl -fsSL bhatti.sh/i | sh</code>
+                            <button class="copy-btn" onclick="copyText('install-cmd', this)" vid="26">Copy</button>
+                        </div>
+                        <a href="#demo" class="btn btn-outline" vid="27">Try the hosted demo →</a>
+                    </div>
+                    
+                    <div class="hero-meta" vid="28">
+                        <span vid="29">Open source</span>
+                        <span vid="30">·</span>
+                        <span vid="31">Apache 2.0</span>
+                        <span vid="32">·</span>
+                        <span vid="33">~12,000 lines of Go</span>
+                    </div>
+                </div>
+
+                <div class="terminal" vid="34">
+                    <div class="terminal-header" vid="35">
+                        <div class="terminal-dots" vid="36">
+                            <div class="terminal-dot" vid="37"></div>
+                            <div class="terminal-dot" vid="38"></div>
+                            <div class="terminal-dot" vid="39"></div>
+                        </div>
+                    </div>
+                    <div class="terminal-body" vid="40">
+                        <div class="prompt" vid="41">bhatti create --name dev --cpus 2 --memory 1024</div>
+                        <div class="output" vid="42">Created sandbox "dev" (a1b2c3d4) in 3.4s</div>
+                        <div class="prompt" vid="43">bhatti exec dev -- uname -a</div>
+                        <div class="output" vid="44">Linux dev 6.1.155 #1 SMP aarch64 GNU/Linux</div>
+                        <div class="prompt" vid="45">bhatti exec dev -- node --version</div>
+                        <div class="output" vid="46">v22.16.0</div>
+                        <div class="prompt" vid="47">bhatti shell dev</div>
+                        <div style="color: var(--amber-500); margin-top: 8px;" vid="48">lohar@dev:/workspace$ <span class="cursor" vid="49"></span></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        
+        <section id="features" vid="50">
+            <div class="container grid-2" vid="51">
+                <div vid="52">
+                    <span class="system-label" vid="53">CORE.PRIMITIVES</span>
+                    <h2 class="mb-64" style="font-size: 2.5rem;" vid="54">Isolation without the overhead.</h2>
+                    
+                    <div class="facts-list" vid="55">
+                        <div class="fact-item" vid="56">
+                            <div class="fact-number" vid="57">01</div>
+                            <div class="fact-content" vid="58">
+                                <h3 vid="59">Real VMs. Not containers.</h3>
+                                <p vid="60">Every sandbox runs its own Linux kernel in a Firecracker microVM. Process isolation, filesystem isolation, network isolation. Not a namespace trick — a separate machine.</p>
+                            </div>
+                        </div>
+                        <div class="fact-item" vid="61">
+                            <div class="fact-number" vid="62">02</div>
+                            <div class="fact-content" vid="63">
+                                <h3 vid="64">Memory snapshots. Not just filesystem.</h3>
+                                <p vid="65">When bhatti snapshots a VM, it captures everything: running processes, open file descriptors, TCP connections, in-memory state. Resume picks up exactly where it left off.</p>
+                            </div>
+                        </div>
+                        <div class="fact-item" vid="66">
+                            <div class="fact-number" vid="67">03</div>
+                            <div class="fact-content" vid="68">
+                                <h3 vid="69">Three thermal states. Invisible to you.</h3>
+                                <p vid="70">Idle 30 seconds → warm (vCPUs paused, ~400µs resume). Idle 30 minutes → cold (snapshotted to disk, memory freed, ~50ms resume). Any API request transparently wakes it.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div vid="71">
+                    <span class="system-label" style="text-align: right;" vid="72">SYS.PERFORMANCE // LATENCY</span>
+                    <div class="table-container mb-16" vid="73">
+                        <table vid="74">
+                            <thead vid="75">
+                                <tr vid="76">
+                                    <th vid="77">Operation</th>
+                                    <th vid="78">p50</th>
+                                    <th vid="79">p95</th>
+                                    <th vid="80">p99</th>
+                                </tr>
+                            </thead>
+                            <tbody class="mono" vid="81">
+                                <tr vid="82">
+                                    <td style="font-family: var(--font-sans);" vid="83">Exec (single command)</td>
+                                    <td vid="84">1.2ms</td>
+                                    <td vid="85">1.8ms</td>
+                                    <td vid="86">2.4ms</td>
+                                </tr>
+                                <tr vid="87">
+                                    <td style="font-family: var(--font-sans);" vid="88">File read (1KB)</td>
+                                    <td vid="89">0.8ms</td>
+                                    <td vid="90">1.1ms</td>
+                                    <td vid="91">1.5ms</td>
+                                </tr>
+                                <tr vid="92">
+                                    <td style="font-family: var(--font-sans);" vid="93">Resume + exec (warm)</td>
+                                    <td vid="94">2.1ms</td>
+                                    <td vid="95">3.5ms</td>
+                                    <td vid="96">5.2ms</td>
+                                </tr>
+                                <tr vid="97">
+                                    <td style="font-family: var(--font-sans);" vid="98">10 concurrent execs</td>
+                                    <td vid="99">4.5ms</td>
+                                    <td vid="100">6.2ms</td>
+                                    <td vid="101">8.1ms</td>
+                                </tr>
+                                <tr vid="102">
+                                    <td style="font-family: var(--font-sans);" vid="103">VM boot (cold)</td>
+                                    <td vid="104">120ms</td>
+                                    <td vid="105">145ms</td>
+                                    <td vid="106">180ms</td>
+                                </tr>
+                                <tr vid="107">
+                                    <td style="font-family: var(--font-sans);" vid="108">Diff snapshot</td>
+                                    <td vid="109">45ms</td>
+                                    <td vid="110">85ms</td>
+                                    <td vid="111">120ms</td>
+                                </tr>
+                                <tr vid="112">
+                                    <td style="font-family: var(--font-sans);" vid="113">Pause / Resume</td>
+                                    <td vid="114">400µs</td>
+                                    <td vid="115">650µs</td>
+                                    <td vid="116">900µs</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="text-xs text-muted" style="text-align: right;" vid="117">Measured on a Raspberry Pi 5 with NVMe.</p>
+                </div>
+            </div>
+        </section>
+
+        
+        <section id="architecture" vid="118">
+            <div class="container" vid="119">
+                <span class="system-label" vid="120">SYS.ARCHITECTURE</span>
+                <h2 class="mb-64" style="font-size: 2.5rem;" vid="121">How it works</h2>
+
+                <div class="diagram-container" vid="122">
+                    <div class="arch-grid" vid="123">
+                        <div class="arch-node" vid="124">
+                            <h4 vid="125">Your Code</h4>
+                            <p vid="126">API Clients, SDKs, CLI</p>
+                        </div>
+                        <div class="arch-connector" vid="127"></div>
+                        <div class="arch-node highlight" vid="128">
+                            <h4 vid="129">bhatti daemon</h4>
+                            <ul vid="130">
+                                <li vid="131">REST API</li>
+                                <li vid="132">Thermal Manager</li>
+                                <li vid="133">Multi-tenant Auth</li>
+                            </ul>
+                        </div>
+                        <div class="arch-connector" vid="134"></div>
+                        <div class="arch-node" vid="135">
+                            <h4 vid="136">Firecracker microVM</h4>
+                            <ul vid="137">
+                                <li vid="138">Linux Kernel 6.1</li>
+                                <li vid="139">Ubuntu 24.04 rootfs</li>
+                                <li vid="140">lohar (PID 1) init</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 64px;" vid="141">
+                        <span class="system-label" vid="142">STATE.THERMAL_MANAGER</span>
+                        <div class="thermal-bar" vid="143">
+                            <div class="thermal-state" vid="144">
+                                <span vid="145">Hot</span>
+                                <div class="timing" vid="146">Active executing</div>
+                            </div>
+                            <div class="thermal-state" vid="147">
+                                <span vid="148">Warm</span>
+                                <div class="timing" vid="149">Idle &gt; 30s. vCPUs paused. RAM held. (~400µs wake)</div>
+                            </div>
+                            <div class="thermal-state" vid="150">
+                                <span vid="151">Cold</span>
+                                <div class="timing" vid="152">Idle &gt; 30m. Snapshotted to disk. RAM freed. (~50ms wake)</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        
+        <section id="self-host" vid="153">
+            <div class="container grid-2" vid="154">
+                <div vid="155">
+                    <span class="system-label" vid="156">DEPLY.SELF_HOST</span>
+                    <h2 class="mb-32" style="font-size: 2.5rem;" vid="157">Run it on your hardware.</h2>
+                    <p class="subhead mb-32" vid="158">One command. Any Linux machine with KVM. Downloads pre-built binaries (~15MB), a kernel, and a minimal Ubuntu rootfs. No compilation, no Docker, no root during install. ~30 seconds.</p>
+                    
+                    <div class="anti-pitch" vid="159">
+                        <h4 vid="160">Requirements</h4>
+                        <ul vid="161">
+                            <li vid="162">Linux (x86_64 or ARM64)</li>
+                            <li vid="163">Hardware virtualization (/dev/kvm)</li>
+                            <li vid="164">Root access for daemon (Firecracker req)</li>
+                        </ul>
+                        <p class="text-xs text-muted mt-16" style="margin-top: 16px;" vid="165">Tested on: Raspberry Pi 5, Hetzner AX-series, AWS Graviton metal.</p>
+                    </div>
+                </div>
+                <div vid="166">
+                    <div class="code-panel" vid="167">
+                        <pre class="code-panel-pre" vid="168"><code class="mono" style="color: var(--zinc-400);" vid="169"># 1. Install binaries and default images
+<span style="color: var(--zinc-50);" vid="170">$ curl -fsSL https://bhatti.sh/install | sh</span>
+
+# 2. Start the daemon (requires root for kvm/network)
+<span style="color: var(--zinc-50);" vid="171">$ sudo bhatti serve</span>
+[INFO] Starting bhatti daemon v1.0.0
+[INFO] Listening on /var/run/bhatti.sock
+
+# 3. Create an API key in another terminal
+<span style="color: var(--zinc-50);" vid="172">$ sudo bhatti user create --name alice</span>
+bht_live_abc123def456...
+
+# 4. Start creating VMs
+<span style="color: var(--zinc-50);" vid="173">$ export BHATTI_API_KEY=bht_live_...
+$ bhatti create --name test</span></code></pre>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        
+        <section id="demo" vid="174">
+            <div class="container" vid="175">
+                <span class="system-label" vid="176">ENV.DEMO_SERVER</span>
+                <h2 class="mb-64" style="font-size: 2.5rem;" vid="177">Try it now.</h2>
+
+                <div class="demo-paths" vid="178">
+                    
+                    <div class="terminal" style="box-shadow: none;" vid="179">
+                        <div class="terminal-header" style="justify-content: space-between;" vid="180">
+                            <div class="terminal-dots" vid="181">
+                                <div class="terminal-dot" vid="182"></div>
+                                <div class="terminal-dot" vid="183"></div>
+                                <div class="terminal-dot" vid="184"></div>
+                            </div>
+                            <span class="text-xs text-muted mono" vid="185">frankfurt.bhatti.sh</span>
+                        </div>
+                        <div class="terminal-body" style="flex-grow: 1; display: flex; flex-direction: column;" vid="186">
+                            <div style="color: var(--zinc-500); margin-bottom: 16px;" vid="187">// This is a real Firecracker VM running in Germany.<br vid="188">// Try: uname -a, curl ifconfig.me, node --version</div>
+                            <div class="prompt" vid="189">uname -a</div>
+                            <div class="output" vid="190">Linux demo-vm 6.1.155 #1 SMP x86_64 GNU/Linux</div>
+                            <div style="color: var(--amber-500); margin-top: auto;" vid="191">guest@demo:/$ <span class="cursor" vid="192"></span></div>
+                        </div>
+                    </div>
+
+                    
+                    <div class="demo-card" vid="193">
+                        <h3 vid="194">Want your own sandboxes?</h3>
+                        <p vid="195">3 sandboxes, 24-hour sessions, 512MB RAM each. Instant access.</p>
+                        
+                        <form id="demo-form" onsubmit="generateKey(event)" vid="196">
+                            <div class="input-group" vid="197">
+                                <input type="email" placeholder="developer@company.com" required="" vid="198">
+                                <button type="submit" class="btn btn-amber" vid="199">Get API key →</button>
+                            </div>
+                        </form>
+
+                        <div id="api-key-display" vid="200">
+                            <span class="system-label" style="margin-bottom: 8px;" vid="201">SEC.API_KEY_GENERATED</span>
+                            <div class="copy-block mb-16" style="background: var(--zinc-950);" vid="202">
+                                <code id="demo-key" class="text-amber" vid="203">bht_demo_8f92a1b3c4d5e6</code>
+                                <button class="copy-btn" onclick="copyText('demo-key', this)" vid="204">Copy</button>
+                            </div>
+                            <p class="text-xs text-muted mono" vid="205">export BHATTI_HOST=https://demo.bhatti.sh<br vid="206">export BHATTI_API_KEY=...</p>
+                        </div>
+                    </div>
+                </div>
+                <p class="text-xs text-muted mt-16 mono" style="margin-top: 16px; text-align: center;" vid="207">Demo server is in Frankfurt, DE. Latency is network, not bhatti. Use <span style="color:var(--zinc-300)" vid="208">--timing</span> to see the breakdown.</p>
+            </div>
+        </section>
+
+        
+        <section id="use-cases" vid="209">
+            <div class="container" vid="210">
+                <span class="system-label" vid="211">SYS.APPLICATIONS</span>
+                <h2 class="mb-64" style="font-size: 2.5rem;" vid="212">Use cases</h2>
+
+                <div class="grid-2" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;" vid="213">
+                    
+                    <div class="code-panel" vid="214">
+                        <div class="code-panel-text" vid="215">
+                            <h3 vid="216">AI Coding Agents</h3>
+                            <p vid="217">Give LLMs a real, stateful environment to execute code, install packages, and run tests safely.</p>
+                        </div>
+                        <pre class="code-panel-pre" vid="218"><code vid="219"><span style="color: var(--zinc-500);" vid="220">// Python SDK</span>
+import bhatti
+
+sandbox = bhatti.create()
+sandbox.exec("npm init -y")
+sandbox.exec("npm install express")
+
+res = sandbox.exec("node server.js &amp;")
+<span style="color: var(--amber-500);" vid="221">print(f"Server PID: {res.pid}")</span>
+
+sandbox.destroy()</code></pre>
+                    </div>
+
+                    <div class="code-panel" vid="222">
+                        <div class="code-panel-text" vid="223">
+                            <h3 vid="224">Browser Automation</h3>
+                            <p vid="225">Boot a VM with Chromium pre-installed. Run Playwright scripts without polluting your host.</p>
+                        </div>
+                        <pre class="code-panel-pre" vid="226"><code vid="227"><span style="color: var(--zinc-500);" vid="228"># CLI</span>
+$ bhatti create \
+  --image ubuntu-playwright \
+  --name scraper
+
+$ bhatti exec scraper -- \
+  npx playwright test
+
+<span style="color: var(--zinc-500);" vid="229"># Forward WS port to host</span>
+$ bhatti port-forward scraper 9222:9222</code></pre>
+                    </div>
+
+                    <div class="code-panel" vid="230">
+                        <div class="code-panel-text" vid="231">
+                            <h3 vid="232">Docker Inside VMs</h3>
+                            <p vid="233">Run nested Docker daemon. Snapshot the entire VM with containers running to resume instantly later.</p>
+                        </div>
+                        <pre class="code-panel-pre" vid="234"><code vid="235"><span style="color: var(--zinc-500);" vid="236"># CLI</span>
+$ bhatti create --image dind --name db
+$ bhatti exec db -- docker-compose up -d
+
+<span style="color: var(--zinc-500);" vid="237"># Snapshot RAM and Disk</span>
+$ bhatti snapshot db --name pre-test
+
+<span style="color: var(--zinc-500);" vid="238"># Later: Resume in ~50ms</span>
+$ bhatti resume pre-test</code></pre>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        
+        <section id="comparison" vid="239">
+            <div class="container" vid="240">
+                <span class="system-label" vid="241">SYS.COMPARISON</span>
+                <h2 class="mb-64" style="font-size: 2.5rem;" vid="242">The landscape.</h2>
+
+                <div class="table-container mb-32" vid="243">
+                    <table class="comp-table" vid="244">
+                        <thead vid="245">
+                            <tr vid="246">
+                                <th style="text-align: left;" vid="247">Capability</th>
+                                <th vid="248">bhatti</th>
+                                <th vid="249">Docker</th>
+                                <th vid="250">E2B</th>
+                                <th vid="251">Fly Machines</th>
+                            </tr>
+                        </thead>
+                        <tbody vid="252">
+                            <tr vid="253">
+                                <td style="text-align: left;" vid="254">Isolation</td>
+                                <td class="win" vid="255">Hardware (VM)</td>
+                                <td class="lose" vid="256">Kernel (Namespaces)</td>
+                                <td vid="257">Hardware (VM)</td>
+                                <td vid="258">Hardware (VM)</td>
+                            </tr>
+                            <tr vid="259">
+                                <td style="text-align: left;" vid="260">Cold Boot Time</td>
+                                <td vid="261">~120ms</td>
+                                <td class="win" vid="262">~10ms</td>
+                                <td vid="263">~150ms</td>
+                                <td vid="264">~300ms</td>
+                            </tr>
+                            <tr vid="265">
+                                <td style="text-align: left;" vid="266">Memory Snapshots</td>
+                                <td class="win" vid="267">Yes</td>
+                                <td class="lose" vid="268">No</td>
+                                <td class="lose" vid="269">No</td>
+                                <td class="lose" vid="270">No</td>
+                            </tr>
+                            <tr vid="271">
+                                <td style="text-align: left;" vid="272">Pause/Resume</td>
+                                <td class="win" vid="273">Microseconds</td>
+                                <td class="lose" vid="274">No</td>
+                                <td class="lose" vid="275">No</td>
+                                <td vid="276">Seconds</td>
+                            </tr>
+                            <tr vid="277">
+                                <td style="text-align: left;" vid="278">Self-hostable</td>
+                                <td class="win" vid="279">Yes (1 command)</td>
+                                <td vid="280">Yes</td>
+                                <td class="lose" vid="281">No (Managed)</td>
+                                <td class="lose" vid="282">No (Managed)</td>
+                            </tr>
+                            <tr vid="283">
+                                <td style="text-align: left;" vid="284">Open Source</td>
+                                <td class="win" vid="285">Apache 2.0</td>
+                                <td vid="286">Apache 2.0</td>
+                                <td vid="287">Apache 2.0</td>
+                                <td class="lose" vid="288">Proprietary</td>
+                            </tr>
+                            <tr vid="289">
+                                <td style="text-align: left;" vid="290">GPU Support</td>
+                                <td class="lose" vid="291">No</td>
+                                <td class="win" vid="292">Yes</td>
+                                <td class="win" vid="293">Yes</td>
+                                <td class="win" vid="294">Yes</td>
+                            </tr>
+                            <tr vid="295">
+                                <td style="text-align: left;" vid="296">Managed Service</td>
+                                <td class="lose" vid="297">No</td>
+                                <td class="lose" vid="298">No</td>
+                                <td class="win" vid="299">Yes</td>
+                                <td class="win" vid="300">Yes</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="anti-pitch" vid="301">
+                    <h4 style="color: var(--amber-500);" vid="302">Where bhatti is not the right choice:</h4>
+                    <ul vid="303">
+                        <li vid="304">You need managed global infrastructure (use Fly or E2B).</li>
+                        <li vid="305">You need GPU passthrough for ML workloads (Firecracker doesn't support GPUs).</li>
+                        <li vid="306">You need Windows VMs (Linux guests only).</li>
+                        <li vid="307">You prioritize 10ms cold starts over absolute security isolation (use Docker).</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer vid="308">
+        <div class="container" vid="309">
+            <div class="footer-links" vid="310">
+                <a href="#" vid="311">bhatti</a>
+                <span vid="312">·</span>
+                <span vid="313">open source</span>
+                <span vid="314">·</span>
+                <span vid="315">Apache 2.0</span>
+                <span vid="316">·</span>
+                <a href="https://github.com" target="_blank" vid="317">GitHub</a>
+                <span vid="318">·</span>
+                <span vid="319">Made by Sahil</span>
+            </div>
+            <div class="etymology" vid="320">
+                bhatti (भट्टी) — furnace. lohar (लोहार) — blacksmith.
+            </div>
+        </div>
+    </footer>
+
+    <script vid="321">
+        
+        window.addEventListener('scroll', () => {
+            const nav = document.getElementById('navbar');
+            if (window.scrollY > 50) {
+                nav.classList.add('scrolled');
+            } else {
+                nav.classList.remove('scrolled');
+            }
+        });
+
+        
+        function copyText(elementId, btnElement) {
+            const text = document.getElementById(elementId).innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = btnElement.innerText;
+                btnElement.innerText = 'Copied!';
+                btnElement.style.color = 'var(--zinc-50)';
+                setTimeout(() => {
+                    btnElement.innerText = originalText;
+                    btnElement.style.color = '';
+                }, 2000);
+            });
+        }
+
+        
+        function generateKey(e) {
+            e.preventDefault();
+            const form = document.getElementById('demo-form');
+            const display = document.getElementById('api-key-display');
+            const btn = form.querySelector('button');
+            
+            btn.innerText = 'Generating...';
+            btn.disabled = true;
+
+            
+            setTimeout(() => {
+                form.style.display = 'none';
+                display.style.display = 'block';
+            }, 800);
+        }
+
+        
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    const headerOffset = 80;
+                    const elementPosition = target.getBoundingClientRect().top;
+                    const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+                    window.scrollTo({
+                        top: offsetPosition,
+                        behavior: "smooth"
+                    });
+                }
+            });
+        });
+    </script>
+
+</body></html>

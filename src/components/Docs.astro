@@ -1,0 +1,87 @@
+---
+const docs = [
+    { title: "Quickstart", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/quickstart.md", description: "CLI install, server setup, user management" },
+    { title: "Architecture", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/architecture.md", description: "System design, data flow, concurrency model" },
+    { title: "Wire Protocol", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/wire-protocol.md", description: "Binary framing, connection lifecycle, auth" },
+    { title: "Guest Agent", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/guest-agent.md", description: "PID 1 init, PTY sessions, process management" },
+    { title: "Thermal Management", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/thermal-management.md", description: "Hot/warm/cold states, diff snapshots" },
+    { title: "Networking", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/networking.md", description: "Per-user bridges, iptables isolation" },
+    { title: "API Reference", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/api-reference.md", description: "REST/WebSocket endpoints" },
+    { title: "CLI Reference", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/cli-reference.md", description: "All commands and flags" },
+    { title: "Testing", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/testing.md", description: "11K lines of tests, zero mocks for VM tests" },
+    { title: "Design Decisions", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/decisions.md", description: "Why TCP over vsock, why no FC SDK, why PID 1" },
+];
+---
+
+<section id="docs">
+    <div class="container">
+        <span class="system-label">SYS.DOCUMENTATION</span>
+        <h2 class="section-heading mb-64">Documentation</h2>
+
+        <div class="docs-grid">
+            {docs.map(doc => (
+                <a href={doc.href} target="_blank" rel="noopener" class="doc-card">
+                    <h3>{doc.title}</h3>
+                    <p>{doc.description}</p>
+                    <span class="doc-arrow">→</span>
+                </a>
+            ))}
+        </div>
+    </div>
+</section>
+
+<style>
+    .section-heading {
+        font-size: 2.5rem;
+    }
+
+    .docs-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 16px;
+    }
+
+    .doc-card {
+        display: flex;
+        flex-direction: column;
+        padding: 24px;
+        border: 1px solid var(--zinc-800);
+        border-radius: var(--border-radius);
+        background: var(--zinc-900);
+        text-decoration: none;
+        transition: border-color 0.2s, background 0.2s;
+        position: relative;
+    }
+
+    .doc-card:hover {
+        border-color: var(--zinc-700);
+        background: var(--zinc-800);
+    }
+
+    .doc-card h3 {
+        font-size: 1rem;
+        margin-bottom: 8px;
+        font-family: var(--font-mono);
+        color: var(--zinc-50);
+    }
+
+    .doc-card p {
+        font-size: 0.8125rem;
+        color: var(--zinc-400);
+        line-height: 1.5;
+        flex: 1;
+    }
+
+    .doc-arrow {
+        position: absolute;
+        top: 24px;
+        right: 24px;
+        color: var(--zinc-500);
+        transition: color 0.2s, transform 0.2s;
+    }
+
+    .doc-card:hover .doc-arrow {
+        color: var(--amber-500);
+        transform: translateX(4px);
+    }
+</style>

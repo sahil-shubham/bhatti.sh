@@ -1,0 +1,70 @@
+---
+
+---
+
+<section id="get-started">
+    <div class="container grid-2">
+        <div>
+            <span class="system-label">DEPLOY.SELF_HOST</span>
+            <h2 class="section-heading mb-32">Run it on your hardware.</h2>
+            <p class="subhead mb-32">
+                Clone, install, serve. Any Linux machine with KVM. Builds both binaries from source, downloads a kernel, and creates an Ubuntu 24.04 rootfs. No Docker, no containers, no orchestration layer.
+            </p>
+
+            <div class="anti-pitch">
+                <h4>Requirements</h4>
+                <ul>
+                    <li>Linux (x86_64 or ARM64)</li>
+                    <li>Hardware virtualization (/dev/kvm)</li>
+                    <li>Root access for daemon (Firecracker requirement)</li>
+                </ul>
+                <p class="text-xs text-muted" style="margin-top: 16px;">
+                    Tested on: Raspberry Pi 5, Hetzner AX-series, AWS Graviton metal.
+                </p>
+            </div>
+        </div>
+        <div>
+            <div class="code-panel">
+                <pre class="code-panel-pre"><code class="mono"><span class="comment"># 1. Clone and install (builds from source, ~10 min first time)</span>
+<span class="cmd">$ git clone https://github.com/sahil-shubham/bhatti.git</span>
+<span class="cmd">$ cd bhatti && sudo ./scripts/install.sh</span>
+
+<span class="comment"># 2. Start the daemon (requires root for kvm/network)</span>
+<span class="cmd">$ cd /var/lib/bhatti && sudo bhatti serve</span>
+[INFO] Starting bhatti daemon v0.1.0
+[INFO] Listening on :8080
+
+<span class="comment"># 3. Create a user (API key shown once)</span>
+<span class="cmd">$ sudo bhatti user create --name alice</span>
+bht_live_abc123def456...
+
+<span class="comment"># 4. Install CLI on your laptop (macOS or Linux)</span>
+<span class="cmd">$ curl -fsSL bhatti.sh/install | sh</span>
+<span class="cmd">$ bhatti setup</span>
+API endpoint: https://your-server:8080
+API key: ****
+Testing connection... ✓ connected</code></pre>
+            </div>
+        </div>
+    </div>
+</section>
+
+<style>
+    .section-heading {
+        font-size: 2.5rem;
+    }
+
+    .subhead {
+        font-size: 1.125rem;
+        color: var(--zinc-400);
+        line-height: 1.5;
+    }
+
+    .comment {
+        color: var(--zinc-500);
+    }
+
+    .cmd {
+        color: var(--zinc-50);
+    }
+</style>

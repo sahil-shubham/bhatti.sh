@@ -1,0 +1,89 @@
+---
+const useCases = [
+    {
+        title: "AI Coding Agents",
+        description: "Give LLMs a real, stateful environment to execute code, install packages, and run tests — with full VM isolation between tenants.",
+        code: `<span class="c">// Your agent framework</span>
+sandbox = bhatti.create(cpus=2, memory=1024)
+
+<span class="c">// Full exec with streaming output</span>
+sandbox.exec("npm init -y")
+sandbox.exec("npm install express")
+result = sandbox.exec("npm test")
+
+<span class="c">// File operations (atomic writes)</span>
+sandbox.file_write("/workspace/app.js", code)
+sandbox.file_read("/workspace/package.json")
+
+<span class="c">// Pause for free, resume in ~400µs</span>
+sandbox.destroy()`
+    },
+    {
+        title: "Disposable Dev Environments",
+        description: "Spin up isolated Linux VMs with Node 22, git, and common tools pre-installed. Snapshot and resume across sessions.",
+        code: `<span class="c"># Interactive shell with session persistence</span>
+$ bhatti create --name project \\
+    --cpus 2 --memory 1024
+
+$ bhatti shell project
+lohar@project:/workspace$ npm install
+lohar@project:/workspace$ npm run dev
+<span class="c"># Ctrl+\\ to detach — process keeps running</span>
+
+<span class="c"># Reconnect later, scrollback replayed</span>
+$ bhatti shell project`
+    },
+    {
+        title: "Multi-Tenant Sandboxing",
+        description: "Each user gets isolated API keys, network segments, resource caps, and rate limits. VMs from different users cannot communicate.",
+        code: `<span class="c"># Per-user isolation at every layer</span>
+$ sudo bhatti user create --name alice \\
+    --max-sandboxes 5
+
+$ sudo bhatti user create --name bob \\
+    --max-sandboxes 10 \\
+    --max-cpus 4 --max-memory 4096
+
+<span class="c"># Each user gets:</span>
+<span class="c"># - Dedicated bridge + /24 subnet</span>
+<span class="c"># - Scoped API key (SHA-256 auth)</span>
+<span class="c"># - Per-user rate limits</span>
+<span class="c"># - Encrypted secrets (age)</span>`
+    },
+];
+---
+
+<section id="use-cases">
+    <div class="container">
+        <span class="system-label">SYS.APPLICATIONS</span>
+        <h2 class="section-heading mb-64">Built for</h2>
+
+        <div class="use-case-grid">
+            {useCases.map(uc => (
+                <div class="code-panel">
+                    <div class="code-panel-text">
+                        <h3>{uc.title}</h3>
+                        <p>{uc.description}</p>
+                    </div>
+                    <pre class="code-panel-pre"><code set:html={uc.code} /></pre>
+                </div>
+            ))}
+        </div>
+    </div>
+</section>
+
+<style>
+    .section-heading {
+        font-size: 2.5rem;
+    }
+
+    .use-case-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 24px;
+    }
+
+    .c {
+        color: var(--zinc-500);
+    }
+</style>
