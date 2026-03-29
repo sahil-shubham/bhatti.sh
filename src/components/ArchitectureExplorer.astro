@@ -1,15 +1,14 @@
 ---
-// Interactive layered architecture diagram — shows real system topology with nesting and data flow
+// Interactive layered architecture diagram — nested topology with click-to-explore
 ---
 
 <section id="architecture">
     <div class="container">
         <span class="system-label">SYS.ARCHITECTURE</span>
         <h2 class="section-heading mb-16">How it works</h2>
-        <p class="section-sub mb-48">Click any layer to explore. Hover to see data flow.</p>
+        <p class="section-sub mb-48">Click any component to explore.</p>
 
         <div class="arch-canvas" id="arch-canvas">
-            <!-- Outermost: Host machine -->
             <div class="layer layer--host" id="layer-host">
                 <div class="layer-label">Host Machine</div>
 
@@ -39,17 +38,17 @@
                     </div>
                 </div>
 
-                <!-- Data flow line -->
-                <div class="flow-channel" id="flow-channel">
-                    <div class="flow-label">Binary wire protocol · TCP :1024</div>
+                <!-- Wire protocol flow -->
+                <div class="flow-channel" id="flow-channel" data-explore="wire-protocol">
                     <div class="flow-particles">
                         <div class="particle"></div>
                         <div class="particle"></div>
                         <div class="particle"></div>
                     </div>
+                    <div class="flow-label">Binary wire protocol · TCP :1024</div>
                 </div>
 
-                <!-- Sandbox (microVM) — shown as contained within host -->
+                <!-- Firecracker microVM -->
                 <div class="layer layer--vm" data-explore="vm" id="layer-vm">
                     <div class="layer-header">
                         <span class="layer-name">Firecracker microVM</span>
@@ -67,32 +66,32 @@
                         </div>
                         <div class="vm-disks">
                             <div class="disk" data-explore="tiers">rootfs.ext4</div>
-                            <div class="disk">config.ext4</div>
-                            <div class="disk">vol-*.ext4</div>
+                            <div class="disk" data-explore="configdrive">config.ext4</div>
+                            <div class="disk" data-explore="volumes">vol-*.ext4</div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Network layer at the bottom -->
-                <div class="layer layer--net" data-explore="networking" id="layer-net">
+                <!-- Network layer -->
+                <div class="layer layer--net" id="layer-net">
                     <div class="net-row">
-                        <div class="net-item">
-                            <span class="net-icon">⬡</span>
+                        <div class="net-node" data-explore="net-bridge">
+                            <span class="net-dot"></span>
                             <span>brbhatti0 bridge</span>
                         </div>
                         <div class="net-line"></div>
-                        <div class="net-item">
-                            <span class="net-icon">⬡</span>
-                            <span>tap device</span>
+                        <div class="net-node" data-explore="net-tap">
+                            <span class="net-dot"></span>
+                            <span>TAP device</span>
                         </div>
                         <div class="net-line"></div>
-                        <div class="net-item">
-                            <span class="net-icon">⬡</span>
+                        <div class="net-node" data-explore="net-eth0">
+                            <span class="net-dot"></span>
                             <span>eth0 (kernel ip=)</span>
                         </div>
                         <div class="net-line"></div>
-                        <div class="net-item">
-                            <span class="net-icon">⬡</span>
+                        <div class="net-node" data-explore="net-nat">
+                            <span class="net-dot"></span>
                             <span>iptables NAT</span>
                         </div>
                     </div>
@@ -100,13 +99,14 @@
             </div>
         </div>
 
-        <!-- Detail panel -->
-        <div class="explore-panel" id="explore-panel">
-            <div class="explore-header">
-                <h3 id="explore-title"></h3>
-                <button class="explore-close" id="explore-close">×</button>
+        <!-- Detail area — always visible, content swaps -->
+        <div class="detail-area" id="detail-area">
+            <div class="detail-header" id="detail-header">
+                <span class="detail-hint" id="detail-hint">← Click any component above to explore</span>
+                <h3 id="detail-title" style="display:none;"></h3>
+                <button class="detail-close" id="detail-close" style="display:none;">×</button>
             </div>
-            <div class="explore-body" id="explore-body"></div>
+            <div class="detail-body" id="detail-body"></div>
         </div>
     </div>
 </section>
@@ -117,15 +117,16 @@
     .mb-16 { margin-bottom: 16px; }
     .mb-48 { margin-bottom: 48px; }
 
-    /* Canvas */
-    .arch-canvas {
-        position: relative;
-    }
-
-    /* Layers — nested containers showing real topology */
-    .layer {
+    /* Host container */
+    .layer--host {
+        border: 1px solid var(--zinc-800);
+        background: linear-gradient(180deg, rgba(24,24,27,0.3), rgba(9,9,11,0.8));
+        padding: 36px 28px 28px;
         border-radius: var(--border-radius);
         position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 0;
     }
 
     .layer-label {
@@ -141,128 +142,101 @@
         letter-spacing: 0.1em;
     }
 
-    /* Host — outermost container */
-    .layer--host {
-        border: 1px solid var(--zinc-800);
-        background: linear-gradient(180deg, rgba(24, 24, 27, 0.3) 0%, rgba(9, 9, 11, 0.8) 100%);
-        padding: 32px 24px 24px;
-        display: flex;
-        flex-direction: column;
-        gap: 0;
-    }
-
-    /* Daemon layer */
+    /* Daemon — amber identity */
     .layer--daemon {
-        border: 1px solid var(--zinc-800);
-        background: var(--zinc-900);
-        padding: 16px;
+        border: 1px solid rgba(249,115,22,0.15);
+        background: linear-gradient(180deg, rgba(249,115,22,0.03), transparent);
+        padding: 20px;
+        border-radius: var(--border-radius);
         cursor: pointer;
         transition: border-color 0.3s, box-shadow 0.3s;
     }
 
-    .layer--daemon:hover {
-        border-color: var(--zinc-600);
-    }
-
-    .layer--daemon.active {
-        border-color: var(--amber-500);
-        box-shadow: 0 0 24px rgba(249, 115, 22, 0.08);
-    }
+    .layer--daemon:hover { border-color: rgba(249,115,22,0.35); }
+    .layer--daemon.active { border-color: var(--amber-500); box-shadow: 0 0 24px rgba(249,115,22,0.08); }
 
     .layer-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 12px;
+        margin-bottom: 16px;
     }
 
     .layer-name {
         font-family: var(--font-mono);
-        font-size: 0.8125rem;
+        font-size: 0.875rem;
         font-weight: 600;
         color: var(--zinc-50);
     }
 
-    .layer-port {
+    .layer-port, .layer-tag {
         font-family: var(--font-mono);
         font-size: 0.6875rem;
         color: var(--zinc-500);
     }
 
-    .layer-tag {
-        font-family: var(--font-mono);
-        font-size: 0.6875rem;
-        color: var(--zinc-500);
-    }
-
-    /* Daemon internals — grid of sub-components */
+    /* Daemon sub-components */
     .daemon-internals {
         display: grid;
         grid-template-columns: 1fr 1fr 1fr 1fr;
-        gap: 8px;
+        gap: 10px;
     }
 
     .daemon-component {
         background: var(--zinc-950);
         border: 1px solid var(--zinc-800);
         border-radius: 3px;
-        padding: 10px;
+        padding: 14px 12px;
         cursor: pointer;
         transition: border-color 0.2s, background 0.2s;
+        position: relative;
     }
 
-    .daemon-component:hover {
-        border-color: var(--zinc-600);
-        background: rgba(9, 9, 11, 0.8);
-    }
-
-    .daemon-component.active {
-        border-color: var(--amber-500);
-    }
+    .daemon-component:hover { border-color: rgba(249,115,22,0.4); }
+    .daemon-component.active { border-color: var(--amber-500); background: rgba(249,115,22,0.03); }
 
     .comp-name {
         font-family: var(--font-mono);
-        font-size: 0.75rem;
-        color: var(--zinc-300);
-        margin-bottom: 2px;
+        font-size: 0.8125rem;
+        color: var(--zinc-200);
+        margin-bottom: 4px;
     }
 
     .comp-detail {
         font-size: 0.6875rem;
         color: var(--zinc-500);
-        line-height: 1.3;
+        line-height: 1.4;
     }
 
     .comp-badge {
         font-size: 0.625rem;
         color: var(--amber-500);
-        border: 1px solid rgba(249, 115, 22, 0.3);
+        border: 1px solid rgba(249,115,22,0.3);
         border-radius: 2px;
         padding: 0 4px;
         margin-left: 4px;
     }
 
-    /* Flow channel between daemon and VM */
+    /* Flow channel */
     .flow-channel {
         position: relative;
-        height: 40px;
+        height: 48px;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin: 0 40px;
+        margin: 0 48px;
         cursor: pointer;
     }
 
-    .flow-channel:hover .flow-label {
-        color: var(--zinc-300);
-    }
+    .flow-channel:hover .flow-label { color: var(--zinc-200); }
+    .flow-channel.active .flow-label { color: var(--amber-500); }
 
     .flow-label {
         font-family: var(--font-mono);
-        font-size: 0.6875rem;
+        font-size: 0.75rem;
         color: var(--zinc-500);
         background: var(--zinc-950);
-        padding: 0 12px;
+        padding: 0 16px;
         position: relative;
         z-index: 1;
         transition: color 0.2s;
@@ -280,120 +254,102 @@
 
     .particle {
         position: absolute;
-        width: 20px;
+        width: 24px;
         height: 1px;
         background: var(--amber-500);
-        opacity: 0.6;
-        animation: flowDown 3s linear infinite;
+        opacity: 0.5;
+        animation: flowAcross 3s linear infinite;
     }
 
     .particle:nth-child(1) { animation-delay: 0s; }
     .particle:nth-child(2) { animation-delay: 1s; }
     .particle:nth-child(3) { animation-delay: 2s; }
 
-    @keyframes flowDown {
-        0% { left: -20px; opacity: 0; }
-        10% { opacity: 0.6; }
-        90% { opacity: 0.6; }
+    @keyframes flowAcross {
+        0% { left: -24px; opacity: 0; }
+        10% { opacity: 0.5; }
+        90% { opacity: 0.5; }
         100% { left: 100%; opacity: 0; }
     }
 
-    /* VM layer */
+    /* VM — blue identity */
     .layer--vm {
-        border: 1px solid var(--zinc-800);
-        background: var(--zinc-900);
-        padding: 16px;
+        border: 1px solid rgba(59,130,246,0.15);
+        background: linear-gradient(180deg, rgba(59,130,246,0.03), transparent);
+        padding: 20px;
+        border-radius: var(--border-radius);
         cursor: pointer;
         transition: border-color 0.3s, box-shadow 0.3s;
     }
 
-    .layer--vm:hover {
-        border-color: var(--zinc-600);
-    }
-
-    .layer--vm.active {
-        border-color: var(--amber-500);
-        box-shadow: 0 0 24px rgba(249, 115, 22, 0.08);
-    }
+    .layer--vm:hover { border-color: rgba(59,130,246,0.35); }
+    .layer--vm.active { border-color: #3b82f6; box-shadow: 0 0 24px rgba(59,130,246,0.08); }
 
     .vm-internals {
         display: grid;
         grid-template-columns: 1fr auto;
-        gap: 12px;
+        gap: 14px;
         align-items: start;
     }
 
+    /* Lohar — green identity */
     .vm-lohar {
         background: var(--zinc-950);
-        border: 1px solid var(--zinc-800);
+        border: 1px solid rgba(34,197,94,0.15);
         border-radius: 3px;
-        padding: 12px;
+        padding: 16px;
         cursor: pointer;
         transition: border-color 0.2s;
     }
 
-    .vm-lohar:hover {
-        border-color: var(--zinc-600);
-    }
-
-    .vm-lohar.active {
-        border-color: var(--amber-500);
-    }
+    .vm-lohar:hover { border-color: rgba(34,197,94,0.4); }
+    .vm-lohar.active { border-color: #22c55e; background: rgba(34,197,94,0.03); }
 
     .lohar-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 4px;
-        margin-top: 8px;
+        gap: 6px;
+        margin-top: 10px;
     }
 
     .lohar-item {
         font-family: var(--font-mono);
-        font-size: 0.6875rem;
-        color: var(--zinc-500);
-        padding: 4px 6px;
-        background: rgba(24, 24, 27, 0.5);
+        font-size: 0.75rem;
+        color: var(--zinc-400);
+        padding: 6px 8px;
+        background: rgba(24,24,27,0.5);
         border-radius: 2px;
     }
 
+    /* Disks */
     .vm-disks {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 6px;
     }
 
     .disk {
         font-family: var(--font-mono);
-        font-size: 0.6875rem;
-        color: var(--zinc-500);
+        font-size: 0.75rem;
+        color: var(--zinc-400);
         background: var(--zinc-950);
         border: 1px solid var(--zinc-800);
         border-radius: 2px;
-        padding: 6px 10px;
+        padding: 8px 12px;
         cursor: pointer;
-        transition: border-color 0.2s;
+        transition: border-color 0.2s, color 0.2s;
     }
 
-    .disk:hover {
-        border-color: var(--zinc-600);
-    }
+    .disk:hover { border-color: var(--zinc-500); color: var(--zinc-200); }
+    .disk.active { border-color: var(--amber-500); color: var(--zinc-50); }
 
-    /* Network layer */
+    /* Network — individual clickable nodes */
     .layer--net {
         border: 1px solid var(--zinc-800);
         background: var(--zinc-900);
-        padding: 12px 16px;
-        margin-top: 12px;
-        cursor: pointer;
-        transition: border-color 0.3s;
-    }
-
-    .layer--net:hover {
-        border-color: var(--zinc-600);
-    }
-
-    .layer--net.active {
-        border-color: var(--amber-500);
+        padding: 16px 20px;
+        margin-top: 14px;
+        border-radius: var(--border-radius);
     }
 
     .net-row {
@@ -402,64 +358,79 @@
         gap: 0;
     }
 
-    .net-item {
+    .net-node {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 8px;
         font-family: var(--font-mono);
-        font-size: 0.6875rem;
+        font-size: 0.75rem;
         color: var(--zinc-400);
         white-space: nowrap;
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 3px;
+        border: 1px solid transparent;
+        transition: border-color 0.2s, color 0.2s, background 0.2s;
     }
 
-    .net-icon {
-        color: var(--zinc-600);
-        font-size: 0.5rem;
+    .net-node:hover { border-color: var(--zinc-600); color: var(--zinc-200); background: var(--zinc-950); }
+    .net-node.active { border-color: var(--amber-500); color: var(--zinc-50); background: rgba(249,115,22,0.03); }
+
+    .net-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--zinc-600);
+        flex-shrink: 0;
     }
+
+    .net-node:hover .net-dot { background: var(--zinc-400); }
+    .net-node.active .net-dot { background: var(--amber-500); }
 
     .net-line {
         flex: 1;
-        min-width: 16px;
+        min-width: 12px;
         height: 1px;
         background: var(--zinc-700);
-        margin: 0 8px;
+        margin: 0 4px;
     }
 
-    /* Explore panel */
-    .explore-panel {
-        display: none;
-        margin-top: 24px;
+    /* Detail area — always visible */
+    .detail-area {
+        margin-top: 28px;
         border: 1px solid var(--zinc-800);
         border-radius: var(--border-radius);
         background: var(--zinc-900);
-        overflow: hidden;
-        animation: slideOpen 0.2s ease-out;
+        min-height: 80px;
+        transition: border-color 0.3s;
     }
 
-    .explore-panel.open {
-        display: block;
+    .detail-area.has-content {
+        border-color: rgba(249,115,22,0.2);
     }
 
-    @keyframes slideOpen {
-        from { opacity: 0; transform: translateY(-8px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    .explore-header {
+    .detail-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         padding: 16px 24px;
         border-bottom: 1px solid var(--zinc-800);
+        min-height: 54px;
     }
 
-    .explore-header h3 {
+    .detail-hint {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        color: var(--zinc-500);
+    }
+
+    .detail-header h3 {
         font-family: var(--font-mono);
         font-size: 0.9375rem;
         color: var(--amber-500);
     }
 
-    .explore-close {
+    .detail-close {
         background: none;
         border: 1px solid var(--zinc-800);
         color: var(--zinc-400);
@@ -471,130 +442,45 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        transition: color 0.2s, border-color 0.2s;
     }
 
-    .explore-close:hover {
-        color: var(--zinc-50);
-        border-color: var(--zinc-600);
-    }
+    .detail-close:hover { color: var(--zinc-50); border-color: var(--zinc-600); }
 
-    .explore-body {
-        padding: 24px;
+    .detail-body {
+        padding: 0 24px;
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out, padding 0.3s ease-out;
         font-size: 0.875rem;
         line-height: 1.7;
         color: var(--zinc-300);
     }
 
-    .explore-body :global(p) {
-        margin-bottom: 12px;
-        color: var(--zinc-400);
+    .detail-area.has-content .detail-body {
+        padding: 24px;
+        max-height: 600px;
     }
 
-    .explore-body :global(.eg) {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 20px;
-    }
+    .detail-body :global(p) { margin-bottom: 12px; color: var(--zinc-400); }
+    .detail-body :global(.eg) { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .detail-body :global(h4) { font-family: var(--font-mono); font-size: 0.75rem; color: var(--zinc-50); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .detail-body :global(pre) { background: #000; border: 1px solid var(--zinc-800); border-radius: var(--border-radius); padding: 14px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.5; color: var(--zinc-300); margin-bottom: 12px; }
+    .detail-body :global(.hl) { color: var(--amber-500); }
+    .detail-body :global(.cm) { color: var(--zinc-500); }
+    .detail-body :global(.kw) { color: #c084fc; }
+    .detail-body :global(.st) { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+    .detail-body :global(.st th), .detail-body :global(.st td) { padding: 8px 10px; border-bottom: 1px solid var(--zinc-800); font-size: 0.8125rem; text-align: left; }
+    .detail-body :global(.st th) { font-family: var(--font-mono); color: var(--zinc-500); font-weight: 400; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .detail-body :global(.doc-link) { display: inline-flex; align-items: center; gap: 6px; color: var(--zinc-400); font-family: var(--font-mono); font-size: 0.75rem; text-decoration: none; transition: color 0.2s; margin-top: 4px; }
+    .detail-body :global(.doc-link:hover) { color: var(--amber-500); }
 
-    .explore-body :global(h4) {
-        font-family: var(--font-mono);
-        font-size: 0.75rem;
-        color: var(--zinc-50);
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 8px;
-    }
-
-    .explore-body :global(pre) {
-        background: #000;
-        border: 1px solid var(--zinc-800);
-        border-radius: var(--border-radius);
-        padding: 14px;
-        overflow-x: auto;
-        font-family: var(--font-mono);
-        font-size: 0.8125rem;
-        line-height: 1.5;
-        color: var(--zinc-300);
-        margin-bottom: 12px;
-    }
-
-    .explore-body :global(.hl) { color: var(--amber-500); }
-    .explore-body :global(.cm) { color: var(--zinc-500); }
-    .explore-body :global(.kw) { color: #c084fc; }
-
-    .explore-body :global(.st) {
-        width: 100%;
-        border-collapse: collapse;
-        margin-bottom: 12px;
-    }
-
-    .explore-body :global(.st th),
-    .explore-body :global(.st td) {
-        padding: 8px 10px;
-        border-bottom: 1px solid var(--zinc-800);
-        font-size: 0.8125rem;
-        text-align: left;
-    }
-
-    .explore-body :global(.st th) {
-        font-family: var(--font-mono);
-        color: var(--zinc-500);
-        font-weight: 400;
-        font-size: 0.6875rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
-    .explore-body :global(.doc-link) {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        color: var(--zinc-400);
-        font-family: var(--font-mono);
-        font-size: 0.75rem;
-        text-decoration: none;
-        transition: color 0.2s;
-        margin-top: 4px;
-    }
-
-    .explore-body :global(.doc-link:hover) {
-        color: var(--amber-500);
-    }
-
-    /* Mobile */
     @media (max-width: 768px) {
-        .daemon-internals {
-            grid-template-columns: 1fr 1fr;
-        }
-
-        .vm-internals {
-            grid-template-columns: 1fr;
-        }
-
-        .net-row {
-            flex-wrap: wrap;
-            gap: 4px;
-        }
-
-        .net-line {
-            display: none;
-        }
-
-        .net-item {
-            background: var(--zinc-950);
-            border: 1px solid var(--zinc-800);
-            border-radius: 2px;
-            padding: 4px 8px;
-        }
-
-        .explore-body :global(.eg) {
-            grid-template-columns: 1fr;
-        }
-
-        .layer--host {
-            padding: 24px 12px 12px;
-        }
+        .daemon-internals { grid-template-columns: 1fr 1fr; }
+        .vm-internals { grid-template-columns: 1fr; }
+        .net-row { flex-wrap: wrap; gap: 6px; }
+        .net-line { display: none; }
+        .layer--host { padding: 28px 14px 14px; }
+        .detail-body :global(.eg) { grid-template-columns: 1fr; }
     }
 </style>
 
@@ -602,12 +488,8 @@
     const content: Record<string, { title: string; html: string }> = {
         "daemon": {
             title: "bhatti daemon",
-            html: `
-                <p>Single binary — HTTP server, Firecracker engine, thermal manager, SQLite store, rate limiter. One process, no microservices.</p>
-                <div class="eg">
-                    <div>
-                        <h4>Engine interface</h4>
-<pre><span class="kw">type</span> Engine <span class="kw">interface</span> {
+            html: `<p>Single binary — HTTP server, Firecracker engine, thermal manager, SQLite store, rate limiter. One process, no microservices.</p>
+<div class="eg"><div><h4>Engine interface</h4><pre><span class="kw">type</span> Engine <span class="kw">interface</span> {
     Create(ctx, spec)     → SandboxInfo
     Destroy(ctx, id)      → error
     Stop(ctx, id)         → error  <span class="cm">// snapshot</span>
@@ -615,305 +497,197 @@
     Exec(ctx, id, cmd)    → ExecResult
     Shell(ctx, id)        → TerminalConn
     Tunnel(ctx, id, port) → ReadWriteCloser
-}</pre>
-                        <p>Extended at runtime via interface assertions — file ops, streaming exec, thermal management all discovered dynamically.</p>
-                    </div>
-                    <div>
-                        <h4>Concurrency: capture-and-release</h4>
-<pre>vm.stateMu.Lock()
+}</pre><p>Extended at runtime via interface assertions.</p></div>
+<div><h4>Concurrency: capture-and-release</h4><pre>vm.stateMu.Lock()
 ag := vm.Agent       <span class="cm">// capture ref</span>
 vm.stateMu.Unlock()  <span class="cm">// release lock</span>
-<span class="kw">return</span> ag.Exec(cmd)   <span class="cm">// no lock held</span></pre>
-                        <p>Each VM gets its own mutex. Shell calls can last hours — holding the lock would block the thermal manager.</p>
-                        <h4>Store</h4>
-                        <p>Pure-Go SQLite (<code>modernc.org/sqlite</code>). Zero CGO, cross-compiles Mac→Pi. Secrets encrypted at rest with age.</p>
-                    </div>
-                </div>
-                <a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/architecture.md" target="_blank">Architecture doc →</a>
-            `
+<span class="kw">return</span> ag.Exec(cmd)   <span class="cm">// no lock held</span></pre><p>Each VM gets its own mutex. Shell calls last hours — can't hold the lock.</p></div></div>
+<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/architecture.md" target="_blank">Architecture doc →</a>`
         },
         "api": {
             title: "REST / WebSocket API",
-            html: `
-                <p>Content-negotiated exec endpoint: JSON for simple consumers, NDJSON for streaming. WebSocket for interactive shells.</p>
-                <div class="eg">
-                    <div>
-                        <h4>Streaming exec (NDJSON)</h4>
-<pre>POST /sandboxes/:id/exec
+            html: `<p>Content-negotiated exec: JSON or NDJSON streaming. WebSocket for shells. HTTP/WS reverse proxy into VMs.</p>
+<div class="eg"><div><h4>Streaming exec (NDJSON)</h4><pre>POST /sandboxes/:id/exec
 Accept: application/x-ndjson
 
 <span class="hl">{"type":"stdout","data":"Installing...\\n"}</span>
-<span class="hl">{"type":"stderr","data":"npm warn...\\n"}</span>
 <span class="hl">{"type":"exit","exit_code":0}</span>
-<span class="cm">Each line flushed immediately.</span></pre>
-                    </div>
-                    <div>
-                        <h4>File ops with server-side truncation</h4>
-<pre>GET /sandboxes/:id/files
+<span class="cm">Each line flushed immediately.</span></pre></div>
+<div><h4>File ops with server-side truncation</h4><pre>GET /sandboxes/:id/files
   ?path=/app.log
-  &offset=1&limit=2000&max_bytes=51200
-
-<span class="cm">Whichever limit hits first stops the read.</span>
-<span class="cm">X-File-Size header shows total size.</span></pre>
-                        <p>472µs for a 1KB read vs ~1ms for an exec. No fork, no pipe, single TCP connection.</p>
-                    </div>
-                </div>
-                <a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/api-reference.md" target="_blank">API reference →</a>
-            `
+  &amp;offset=1&amp;limit=2000&amp;max_bytes=51200</pre><p>472µs for a 1KB read. No fork, no pipe, single TCP connection.</p></div></div>
+<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/api-reference.md" target="_blank">API reference →</a>`
         },
         "thermal": {
             title: "Thermal Manager",
-            html: `
-                <p>Every sandbox appears "always running" from the API. Behind the scenes, idle VMs release resources and restore transparently.</p>
-                <div class="eg">
-                    <div>
-                        <table class="st">
-                            <tr><th>State</th><th>FC process</th><th>vCPUs</th><th>RAM</th><th>Resume</th></tr>
-                            <tr><td><span class="hl">Hot</span></td><td>alive</td><td>running</td><td>allocated</td><td>—</td></tr>
-                            <tr><td><span class="hl">Warm</span></td><td>alive</td><td>paused</td><td>allocated</td><td>~400µs</td></tr>
-                            <tr><td><span class="hl">Cold</span></td><td>dead</td><td>—</td><td>freed</td><td>~50ms</td></tr>
-                        </table>
-                        <p>Idle 30s → warm. Idle 30min → cold. <code>ensureHot()</code> before every operation.</p>
-                    </div>
-                    <div>
-                        <h4>The vsock bug</h4>
-                        <p>Vsock breaks after snapshot/restore — connections complete the host handshake but never reach the guest. Confirmed across kernel 5.10, 6.1, FC 1.6.0. SlicerVM had the same unsolved issue.</p>
-                        <p>Fix: TCP over virtio-net (the virtual NIC survives snapshot). Lohar listens on both. Cold boot uses vsock, post-restore uses TCP. +0.1ms.</p>
-                    </div>
-                </div>
-                <a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/thermal-management.md" target="_blank">Thermal management doc →</a>
-            `
+            html: `<p>Every sandbox appears "always running." Idle VMs release resources and restore transparently on the next request.</p>
+<div class="eg"><div><table class="st"><tr><th>State</th><th>FC process</th><th>vCPUs</th><th>RAM</th><th>Resume</th></tr>
+<tr><td><span class="hl">Hot</span></td><td>alive</td><td>running</td><td>allocated</td><td>—</td></tr>
+<tr><td><span class="hl">Warm</span></td><td>alive</td><td>paused</td><td>allocated</td><td>~400µs</td></tr>
+<tr><td><span class="hl">Cold</span></td><td>dead</td><td>—</td><td>freed</td><td>~50ms</td></tr></table>
+<p>Idle 30s → warm. Idle 30min → cold. <code>ensureHot()</code> before every operation.</p></div>
+<div><h4>The vsock bug</h4><p>Vsock breaks after snapshot/restore — connections complete the host handshake but never reach the guest. Confirmed across kernel 5.10, 6.1, FC 1.6.0. SlicerVM had the same unsolved issue.</p>
+<p>Fix: TCP over virtio-net post-restore. Lohar listens on both. +0.1ms.</p></div></div>
+<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/thermal-management.md" target="_blank">Thermal management →</a>`
         },
         "engine": {
             title: "Firecracker Engine",
-            html: `
-                <p>Talks directly to Firecracker's Unix socket API — no SDK, no generated code. ~20 lines of HTTP helpers instead of 15K lines of Swagger models.</p>
-                <div class="eg">
-                    <div>
-                        <h4>Diff snapshots</h4>
-                        <table class="st">
-                            <tr><th>Type</th><th>Writes</th><th>512MB VM</th></tr>
-                            <tr><td>Full (first)</td><td>every page</td><td>~4.4s</td></tr>
-                            <tr><td>Diff (subsequent)</td><td>dirty pages only</td><td>~52ms</td></tr>
-                        </table>
-                        <p><code>track_dirty_pages: true</code> in FC config. Fallback to full if base snapshot missing.</p>
-                    </div>
-                    <div>
-                        <h4>Recovery</h4>
-                        <p>On daemon restart, <code>recoverVMs()</code> reads SQLite and restores in-memory state. Handles both JSON <code>float64</code> and SQLite <code>int</code> values — the state map passes through JSON serialization where all numbers become floats.</p>
-                        <p>Orphaned TAP devices from crashes cleaned up before any VMs load.</p>
-                    </div>
-                </div>
-                <a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/decisions.md" target="_blank">Design decisions →</a>
-            `
+            html: `<p>Direct HTTP to Firecracker's Unix socket — no SDK, ~20 lines of helpers instead of 15K lines of Swagger.</p>
+<div class="eg"><div><h4>Diff snapshots</h4><table class="st"><tr><th>Type</th><th>Writes</th><th>512MB VM</th></tr><tr><td>Full (first)</td><td>every page</td><td>~4.4s</td></tr><tr><td>Diff (subsequent)</td><td>dirty pages only</td><td>~52ms</td></tr></table><p><code>track_dirty_pages: true</code>. Fallback to full if base missing.</p></div>
+<div><h4>Recovery</h4><p><code>recoverVMs()</code> reads SQLite on restart. Handles JSON float64 ↔ SQLite int coercion. Orphaned TAP devices cleaned up before VMs load.</p></div></div>
+<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/decisions.md" target="_blank">Design decisions →</a>`
         },
         "store": {
             title: "SQLite + age encryption",
-            html: `
-                <p>Pure-Go SQLite (<code>modernc.org/sqlite</code>) — zero CGO, cross-compiles from macOS to ARM64. Secrets encrypted with age at rest, scoped per user.</p>
+            html: `<p>Pure-Go SQLite (<code>modernc.org/sqlite</code>) — zero CGO, cross-compiles Mac→ARM64. WAL mode. Secrets encrypted at rest with age, scoped per user.</p>
 <pre><span class="cm"># Store manages:</span>
 sandboxes   <span class="cm">— id, name, user, status, engine state</span>
 users       <span class="cm">— id, name, key hash (SHA-256), limits</span>
 secrets     <span class="cm">— name, encrypted value, user scope</span>
 templates   <span class="cm">— image, mounts, env, init script</span>
 volumes     <span class="cm">— name, size, attached sandbox</span>
-fc_state    <span class="cm">— per-VM Firecracker config for recovery</span></pre>
-                <p>WAL mode for concurrent reads. Per-user rate limiting tracked in-memory (token buckets).</p>
-            `
+fc_state    <span class="cm">— per-VM Firecracker config for recovery</span></pre>`
+        },
+        "wire-protocol": {
+            title: "Wire Protocol",
+            html: `<p>Custom binary framing over TCP. Same protocol over vsock (cold boot), TCP (post-snapshot), or Unix sockets (tests run on macOS without a VM).</p>
+<div class="eg"><div><h4>Frame format</h4><pre>┌────────────────┬───────────┬──────────────────────┐
+│ Length (4B BE)  │ Type (1B) │ Payload (N bytes)    │
+└────────────────┴───────────┴──────────────────────┘
+Max frame: 1MB.</pre><h4>Atomic writes</h4><p>Piped exec has stdout+stderr goroutines writing concurrently. <code>WriteFrame</code> assembles the entire frame into one buffer. Without this, concurrent chunks interleave.</p></div>
+<div><h4>Frame types</h4><table class="st"><tr><th>Type</th><th>Byte</th><th>Use</th></tr><tr><td>STDIN/OUT/ERR</td><td>0x01–03</td><td>I/O streams</td></tr><tr><td>RESIZE</td><td>0x04</td><td>[u16 rows][u16 cols]</td></tr><tr><td>EXIT</td><td>0x05</td><td>[i32 exit code]</td></tr><tr><td>EXEC_REQ</td><td>0x10</td><td>JSON exec request</td></tr><tr><td>AUTH</td><td>0x11</td><td>per-sandbox token</td></tr><tr><td>FILE_*</td><td>0x50–57</td><td>read/write/stat/ls</td></tr></table><p>One connection per op. TTY sessions stay open. Unknown types skipped.</p></div></div>
+<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/wire-protocol.md" target="_blank">Protocol spec →</a>`
         },
         "lohar": {
             title: "lohar — Guest Agent (PID 1)",
-            html: `
-                <p>Replaces systemd. Static Go binary, no libc, no dynamic linking. Handles init, exec, PTY sessions, file ops, port forwarding.</p>
-                <div class="eg">
-                    <div>
-                        <h4>Boot sequence (~3.5s)</h4>
-<pre><span class="cm">// 1. mount /proc, /sys, /dev, /dev/pts</span>
+            html: `<p>Replaces systemd. Static Go binary, no libc. Handles init, exec, PTY sessions, file ops, port forwarding.</p>
+<div class="eg"><div><h4>Boot sequence (~3.5s)</h4><pre><span class="cm">// 1. mount /proc, /sys, /dev, /dev/pts</span>
 <span class="cm">// 2. bring up loopback (raw ioctl)</span>
 <span class="cm">// 3. load config drive (/dev/vdb)</span>
 <span class="cm">// 4. network already up (kernel ip=)</span>
 <span class="cm">// 5. listen vsock + TCP :1024, :1025</span>
 <span class="cm">// 6. run init script as session</span>
-<span class="kw">select</span> {} <span class="cm">// PID 1 never exits</span></pre>
-                        <h4>PTY (raw syscalls, no cgo)</h4>
-<pre>open("/dev/ptmx")
-ioctl(TIOCGPTN)   <span class="cm">// get slave number</span>
-ioctl(TIOCSPTLCK)  <span class="cm">// unlock slave</span>
-open("/dev/pts/N") <span class="cm">// open slave</span></pre>
-                    </div>
-                    <div>
-                        <h4>Session model</h4>
-                        <p>Every TTY exec creates a persistent session with 64KB ring buffer scrollback. Disconnect detaches (no SIGHUP). Reattach replays scrollback.</p>
-                        <h4>Kill semantics</h4>
-                        <table class="st">
-                            <tr><th>Context</th><th>Signal</th></tr>
-                            <tr><td>Piped exec</td><td>SIGKILL to process group</td></tr>
-                            <tr><td>TTY disconnect</td><td>None (detach)</td></tr>
-                            <tr><td>TTY kill</td><td>SIGTERM to process group</td></tr>
-                        </table>
-                        <p>All kills target the process group (<code>-pid</code>), not just the leader. <code>npm install</code> dies with its shell.</p>
-                    </div>
-                </div>
-                <a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/guest-agent.md" target="_blank">Guest agent doc →</a>
-            `
+<span class="kw">select</span> {} <span class="cm">// PID 1 never exits</span></pre></div>
+<div><h4>Session model</h4><p>Every TTY exec = persistent session + 64KB ring buffer. Disconnect detaches (no SIGHUP). Reattach replays scrollback.</p>
+<h4>Kill semantics</h4><table class="st"><tr><th>Context</th><th>Signal</th></tr><tr><td>Piped exec</td><td>SIGKILL to process group</td></tr><tr><td>TTY disconnect</td><td>None (detach)</td></tr><tr><td>TTY kill</td><td>SIGTERM to process group</td></tr></table></div></div>
+<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/guest-agent.md" target="_blank">Guest agent doc →</a>`
         },
         "vm": {
             title: "Firecracker microVM",
-            html: `
-                <p>Each sandbox is a real Linux VM — own kernel, own filesystem, own process isolation. Not a namespace trick. Firecracker boots a minimal Linux kernel with lohar as PID 1.</p>
-                <div class="eg">
-                    <div>
-                        <h4>What's inside</h4>
-<pre>/var/lib/bhatti/sandboxes/&lt;id&gt;/
-├── rootfs.ext4     <span class="cm">CoW copy of base image</span>
+            html: `<p>Each sandbox is a real Linux VM — own kernel, filesystem, process isolation. Firecracker boots a minimal kernel with lohar as PID 1.</p>
+<div class="eg"><div><h4>Disk layout</h4><pre>/var/lib/bhatti/sandboxes/&lt;id&gt;/
+├── rootfs.ext4     <span class="cm">CoW copy of base</span>
 ├── config.ext4     <span class="cm">1MB: hostname, token, env</span>
 ├── vol-*.ext4      <span class="cm">attached volumes</span>
 ├── mem.snap        <span class="cm">memory snapshot (cold)</span>
-└── vm.snap         <span class="cm">VM state snapshot (cold)</span></pre>
-                    </div>
-                    <div>
-                        <h4>Config drive injection</h4>
-                        <p>Everything the VM needs — hostname, auth token, env vars, secrets, DNS, init script, volume mounts — is baked into a 1MB ext4 image and attached as <code>/dev/vdb</code>. No exec-after-boot configuration. No race conditions.</p>
-                        <h4>Post-snapshot</h4>
-                        <p>Virtio-net survives snapshot/restore. Vsock does not. TAP devices kept alive across snapshots (destroying them breaks restored guest networking).</p>
-                    </div>
-                </div>
-            `
-        },
-        "networking": {
-            title: "Networking",
-            html: `
-                <p>Shared bridge, per-user isolation, kernel-level guest IP configuration — no DHCP, no race conditions.</p>
-                <div class="eg">
-                    <div>
-<pre>Internet ←NAT── eth0
-                  │
-            iptables MASQUERADE
-                  │
-            brbhatti0 (192.168.137.1/24)
-                  │
-        ┌────┬────┬────┐
-       tap0  tap1  tap2
-        │     │     │
-       VM1   VM2   VM3
-       .2    .3    .4</pre>
-                    </div>
-                    <div>
-                        <h4>Why kernel ip=</h4>
-                        <p>Guest network must be up before lohar starts — host polls lohar via TCP to detect readiness. <code>ip=</code> kernel param configures eth0 during early boot, before init runs.</p>
-                        <h4>Port scanning</h4>
-                        <p>Background goroutine polls <code>ss -tln</code> every 3s. New ports get automatic HTTP/WS reverse proxy through the daemon. Skips non-hot VMs.</p>
-                    </div>
-                </div>
-                <a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/networking.md" target="_blank">Networking doc →</a>
-            `
+└── vm.snap         <span class="cm">VM state snapshot (cold)</span></pre></div>
+<div><h4>Post-snapshot</h4><p>Virtio-net survives snapshot/restore. Vsock does not — lohar listens on both, host uses TCP post-restore. TAP devices kept alive across snapshots.</p>
+<h4>Config drive</h4><p>1MB ext4 image attached as <code>/dev/vdb</code>. Hostname, auth token, env vars, secrets, DNS, init script, volumes — all injected before boot. No exec-after-boot configuration.</p></div></div>`
         },
         "tiers": {
             title: "Rootfs Tiers + Custom Kernel",
-            html: `
-                <div class="eg">
-                    <div>
-                        <h4>Three tiers</h4>
-                        <table class="st">
-                            <tr><th>Tier</th><th>What's added</th><th>Size</th></tr>
-                            <tr><td><span class="hl">minimal</span></td><td>Ubuntu 24.04 + lohar</td><td>~200MB</td></tr>
-                            <tr><td><span class="hl">browser</span></td><td>+ Node 22 + Playwright + headless_shell</td><td>~600MB</td></tr>
-                            <tr><td><span class="hl">docker</span></td><td>+ Docker Engine + containerd</td><td>~550MB</td></tr>
-                        </table>
-                        <p>Browser tier uses <code>headless_shell</code> — Chrome 133+ broke CDP in new headless mode. Docker tier uses <code>iptables-legacy</code> because the kernel has legacy iptables, not nftables.</p>
-                    </div>
-                    <div>
-                        <h4>Custom kernel (16 flags)</h4>
-                        <p>Starts from Firecracker CI config (v1.15, kernel 6.1.155). Adds Docker networking (IP_NF_RAW, VXLAN, MACVLAN...), VPN (TUN, WIREGUARD), FUSE, kernel TLS, AppArmor, Landlock. Each flag documented with why and what it costs when unused.</p>
-                        <a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/kernel.md" target="_blank">Kernel doc →</a>
-                    </div>
-                </div>
-            `
+            html: `<div class="eg"><div><h4>Three tiers</h4><table class="st"><tr><th>Tier</th><th>Contents</th><th>Size</th></tr>
+<tr><td><span class="hl">minimal</span></td><td>Ubuntu 24.04 + lohar</td><td>~200MB</td></tr>
+<tr><td><span class="hl">browser</span></td><td>+ Node 22 + headless_shell + Playwright</td><td>~600MB</td></tr>
+<tr><td><span class="hl">docker</span></td><td>+ Docker Engine + containerd</td><td>~550MB</td></tr></table>
+<p>Browser uses <code>headless_shell</code> — Chrome 133+ broke CDP in new headless mode.</p></div>
+<div><h4>Custom kernel (16 flags)</h4><p>Starts from Firecracker CI config (v1.15, kernel 6.1.155). Adds Docker networking (IP_NF_RAW, VXLAN, MACVLAN), VPN (TUN, WIREGUARD), FUSE, kernel TLS, AppArmor, Landlock. Each documented with cost when unused.</p>
+<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/kernel.md" target="_blank">Kernel doc →</a></div></div>`
+        },
+        "configdrive": {
+            title: "Config Drive (config.ext4)",
+            html: `<p>A 1MB ext4 image attached as <code>/dev/vdb</code>, mounted read-only at <code>/run/bhatti/config</code>. Built on the host during <code>Create()</code> using <code>mkfs.ext4</code> + mount + write + umount.</p>
+<pre>{
+  "sandbox_id": "a1b2c3d4e5f6",
+  "hostname": "dev",
+  "token": "deadbeef...",
+  "env": {"API_KEY": "sk-...", "NODE_ENV": "development"},
+  "files": {
+    "/workspace/.env": {"content": "base64...", "mode": "0600"}
+  },
+  "volumes": [
+    {"device": "/dev/vdc", "mount": "/workspace", "fs": "ext4"}
+  ],
+  "init": "cd /workspace && npm install",
+  "dns": ["1.1.1.1", "8.8.8.8"]
+}</pre>
+<p>This is how bhatti avoids exec-after-boot configuration. Everything — hostname, env vars, secrets, DNS, init scripts, volume mounts — is available before the agent starts listening. No race conditions, no retries.</p>`
+        },
+        "volumes": {
+            title: "Volumes (vol-*.ext4)",
+            html: `<p>Persistent ext4 images attached as additional virtio-blk drives (<code>/dev/vdc</code>, <code>/dev/vdd</code>, ...). Created independently, attached at sandbox creation time. Data persists across sandbox destroy/recreate.</p>
+<div class="eg"><div><h4>CLI</h4><pre>$ bhatti volume create --name work --size 256
+$ bhatti create --name dev \\
+    --volume work:/workspace</pre></div>
+<div><h4>Implementation</h4><p>Formatted with <code>mkfs.ext4</code> on creation. Mounted by lohar during boot based on config drive volume entries. Writes are to a real block device — no overlay, no copy-on-write. Volume can only be attached to one sandbox at a time.</p></div></div>`
+        },
+        "net-bridge": {
+            title: "brbhatti0 Bridge",
+            html: `<p>A single Linux bridge shared by all VMs. Created on engine startup with <code>ip link add brbhatti0 type bridge</code>. Assigned <code>192.168.137.1/24</code>. All TAP devices are attached to this bridge.</p>
+<p><code>ensureBridge()</code> is idempotent — runs on every startup, ignores "already exists." Enables IP forwarding via <code>/proc/sys/net/ipv4/ip_forward</code>. FORWARD rules inserted at position 1 to take priority over any DROP rules (e.g., from Kubernetes).</p>
+<p>The default outbound interface is auto-detected from <code>ip route show default</code>.</p>`
+        },
+        "net-tap": {
+            title: "TAP Devices",
+            html: `<p>Each VM gets a dedicated TAP device: <code>ip tuntap add tapXXXXXXXX mode tap</code>, attached to the bridge, brought up. Firecracker binds the VM's virtio-net to this TAP.</p>
+<p><strong>Not destroyed during snapshot.</strong> The FC snapshot contains virtio-net state referencing the TAP — destroying and recreating it breaks networking on restore. TAP is only destroyed on <code>Destroy()</code>.</p>
+<p>On engine startup, orphaned TAP devices from previous crashes are cleaned up by listing all <code>tun</code> type devices and deleting any <code>tap*</code> device not in the known set.</p>`
+        },
+        "net-eth0": {
+            title: "eth0 (kernel ip=)",
+            html: `<p>The guest IP is configured via the kernel <code>ip=</code> command-line parameter, passed through Firecracker's boot args:</p>
+<pre>ip=192.168.137.2::192.168.137.1:255.255.255.0::eth0:off:1.1.1.1:8.8.8.8:</pre>
+<p>This configures eth0 with IP, gateway, netmask, and DNS <strong>before init runs</strong>. By the time lohar starts, the network is already up.</p>
+<h4>Why not DHCP?</h4><p>The host polls lohar via TCP to detect readiness. If lohar configures networking, the host can't reach lohar to tell it what IP to use — chicken-and-egg. Kernel <code>ip=</code> solves this: zero dependencies, zero latency, zero failure modes.</p>`
+        },
+        "net-nat": {
+            title: "iptables NAT",
+            html: `<p>A single masquerade rule for the subnet: <code>iptables -t nat -A POSTROUTING -s 192.168.137.0/24 -o eth0 -j MASQUERADE</code>. All VMs share it — no per-VM rules to manage.</p>
+<h4>Post-snapshot networking</h4><p>After restore, the host's conntrack table has stale entries for the guest IP. Guest-initiated SYN packets get stuck in retransmit backoff for 30+ seconds. This doesn't affect normal operation (host always initiates connections to the agent), but <code>ping</code> from inside the VM may be slow immediately after resume.</p>`
         },
     };
 
-    let activeExplore: string | null = null;
-    const panel = document.getElementById('explore-panel')!;
-    const panelTitle = document.getElementById('explore-title')!;
-    const panelBody = document.getElementById('explore-body')!;
+    let active: string | null = null;
+    const area = document.getElementById('detail-area')!;
+    const hint = document.getElementById('detail-hint')!;
+    const titleEl = document.getElementById('detail-title')!;
+    const closeBtn = document.getElementById('detail-close')!;
+    const body = document.getElementById('detail-body')!;
 
     function open(key: string) {
         const c = content[key];
         if (!c) return;
 
-        // Clear all active states
         document.querySelectorAll<HTMLElement>('.active').forEach(el => el.classList.remove('active'));
+        document.querySelector<HTMLElement>(`[data-explore="${key}"]`)?.classList.add('active');
 
-        // Set active on the clicked element
-        const target = document.querySelector<HTMLElement>(`[data-explore="${key}"]`);
-        target?.classList.add('active');
-
-        panelTitle.textContent = c.title;
-        panelBody.innerHTML = c.html;
-        panel.classList.add('open');
-        activeExplore = key;
-
-        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        hint.style.display = 'none';
+        titleEl.style.display = '';
+        titleEl.textContent = c.title;
+        closeBtn.style.display = '';
+        body.innerHTML = c.html;
+        area.classList.add('has-content');
+        active = key;
     }
 
     function close() {
-        panel.classList.remove('open');
         document.querySelectorAll<HTMLElement>('.active').forEach(el => el.classList.remove('active'));
-        activeExplore = null;
+        hint.style.display = '';
+        titleEl.style.display = 'none';
+        closeBtn.style.display = 'none';
+        body.innerHTML = '';
+        area.classList.remove('has-content');
+        active = null;
     }
 
-    // Click handlers on all explorable elements
     document.querySelectorAll<HTMLElement>('[data-explore]').forEach(el => {
         el.addEventListener('click', (e) => {
             e.stopPropagation();
             const key = el.dataset.explore!;
-            if (activeExplore === key) {
-                close();
-            } else {
-                open(key);
-            }
+            active === key ? close() : open(key);
         });
     });
 
-    // Wire protocol on the flow channel
-    document.getElementById('flow-channel')?.addEventListener('click', () => {
-        if (activeExplore === 'wire-protocol') { close(); return; }
-
-        panelTitle.textContent = 'Wire Protocol';
-        panelBody.innerHTML = `
-            <p>Custom binary framing over TCP. Same protocol over vsock (cold boot), TCP (post-snapshot), or Unix sockets (tests run on macOS without a VM).</p>
-            <div class="eg">
-                <div>
-                    <h4>Frame format</h4>
-<pre>┌────────────────┬───────────┬──────────────────────┐
-│ Length (4B BE)  │ Type (1B) │ Payload (N bytes)    │
-└────────────────┴───────────┴──────────────────────┘
-Max frame: 1MB.</pre>
-                    <h4>Atomic writes</h4>
-                    <p>Piped exec has stdout+stderr goroutines writing concurrently. <code>WriteFrame</code> assembles the entire frame into one buffer, writes in one <code>Write()</code> call. Without this, concurrent chunks interleave at arbitrary byte boundaries.</p>
-                </div>
-                <div>
-                    <h4>Frame types</h4>
-                    <table class="st">
-                        <tr><th>Type</th><th>Byte</th><th>Use</th></tr>
-                        <tr><td>STDIN/OUT/ERR</td><td>0x01–03</td><td>I/O streams</td></tr>
-                        <tr><td>RESIZE</td><td>0x04</td><td>[u16 rows][u16 cols]</td></tr>
-                        <tr><td>EXIT</td><td>0x05</td><td>[i32 exit code]</td></tr>
-                        <tr><td>EXEC_REQ</td><td>0x10</td><td>JSON exec request</td></tr>
-                        <tr><td>AUTH</td><td>0x11</td><td>per-sandbox token</td></tr>
-                        <tr><td>FILE_*</td><td>0x50–57</td><td>read/write/stat/ls</td></tr>
-                    </table>
-                    <p>One connection per operation on port 1024. TTY sessions stay open. Unknown frame types are skipped (forward compat).</p>
-                </div>
-            </div>
-            <a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/wire-protocol.md" target="_blank">Protocol spec →</a>
-        `;
-        document.querySelectorAll<HTMLElement>('.active').forEach(el => el.classList.remove('active'));
-        panel.classList.add('open');
-        activeExplore = 'wire-protocol';
-        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    });
-
-    document.getElementById('explore-close')?.addEventListener('click', close);
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+    closeBtn.addEventListener('click', close);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
 </script>
