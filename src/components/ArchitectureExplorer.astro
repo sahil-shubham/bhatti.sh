@@ -613,6 +613,7 @@
         background: var(--zinc-900);
         transition: border-color 0.3s, opacity 0.3s, max-height 0.3s;
         display: none;
+        overflow: hidden;
     }
 
     .detail-area.has-content {
@@ -663,6 +664,7 @@
     .detail-area.has-content .detail-body {
         padding: 24px;
         max-height: 600px;
+        overflow-y: auto;
     }
 
     .detail-body :global(p) { margin-bottom: 12px; color: var(--zinc-400); }
@@ -679,6 +681,7 @@
     .detail-body :global(.doc-link:hover) { color: var(--amber-500); }
 
     @media (max-width: 768px) {
+        .section-heading { font-size: 1.75rem; }
         .daemon-internals { grid-template-columns: 1fr 1fr; }
         .vm-storage-row { flex-direction: column; gap: 14px; }
         .host-storage {
@@ -697,8 +700,24 @@
         .net-row { flex-wrap: wrap; gap: 6px; }
         .net-line { display: none; }
         .net-boundary { margin: 14px 16px; }
-        .layer--host { padding: 28px 14px 14px; }
+        .layer--host { padding: 28px 10px 10px; }
+        .flow-channel { margin: 0 12px; }
+
+        /* Detail panel mobile */
+        .detail-area { margin-top: 20px; }
+        .detail-header { padding: 12px 16px; }
+        .detail-area.has-content .detail-body { padding: 16px; max-height: 800px; }
         .detail-body :global(.eg) { grid-template-columns: 1fr; }
+        .detail-body :global(pre) { font-size: 0.7rem; padding: 10px; }
+        .detail-body :global(.st th),
+        .detail-body :global(.st td) { padding: 6px 8px; font-size: 0.75rem; }
+        .detail-body :global(.doc-link) { font-size: 0.6875rem; }
+
+        /* Component sizing */
+        .comp-name { font-size: 0.75rem; }
+        .comp-detail { font-size: 0.625rem; }
+        .layer-name { font-size: 0.75rem; }
+        .layer-port, .layer-tag { font-size: 0.625rem; }
     }
 </style>
 
