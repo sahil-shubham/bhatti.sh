@@ -475,11 +475,13 @@
     .detail-body :global(.doc-link:hover) { color: var(--amber-500); }
 
     @media (max-width: 768px) {
+        .section-heading { font-size: 1.75rem; }
         .daemon-internals { grid-template-columns: 1fr 1fr; }
         .vm-internals { grid-template-columns: 1fr; }
         .net-row { flex-wrap: wrap; gap: 6px; }
         .net-line { display: none; }
         .layer--host { padding: 28px 14px 14px; }
+        .flow-channel { margin: 0 16px; }
         .detail-body :global(.eg) { grid-template-columns: 1fr; }
     }
 </style>

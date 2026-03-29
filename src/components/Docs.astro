@@ -84,4 +84,20 @@ const docs = [
         color: var(--amber-500);
         transform: translateX(4px);
     }
+
+    @media (max-width: 768px) {
+        .section-heading { font-size: 1.75rem; }
+
+        .docs-grid {
+            grid-template-columns: 1fr;
+            gap: 10px;
+        }
+
+        .doc-card {
+            padding: 16px 18px;
+        }
+
+        .doc-card h3 { font-size: 0.875rem; }
+        .doc-card p { font-size: 0.75rem; }
+    }
 </style>

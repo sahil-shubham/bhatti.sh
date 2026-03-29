@@ -35,7 +35,6 @@ body {
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    overflow-x: hidden;
 }
 
 ::selection {
@@ -100,6 +99,10 @@ section::before {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 64px;
+}
+
+.grid-2 > * {
+    min-width: 0;
 }
 
 /* Buttons */
@@ -298,6 +301,14 @@ section::before {
     .grid-2 { grid-template-columns: 1fr; }
 
     section {
-        padding: 80px 0;
+        padding: 64px 0;
+    }
+
+    .mb-64 { margin-bottom: 32px; }
+    .mb-32 { margin-bottom: 20px; }
+
+    .code-panel-pre {
+        font-size: 0.75rem;
+        padding: 16px;
     }
 }

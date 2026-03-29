@@ -157,12 +157,18 @@ const benchmarks = [
     }
 
     @media (max-width: 768px) {
+        .section-heading { font-size: 1.75rem; }
+
+        .fact-content h3 { font-size: 1.25rem; }
+        .facts-list { gap: 32px; }
+
         .table-container {
-            border-right: none;
-            border-left: none;
             border-radius: 0;
-            margin-left: -24px;
-            width: calc(100% + 48px);
+        }
+
+        th, td {
+            padding: 10px 12px;
+            font-size: 0.75rem;
         }
 
         .bench-note {
