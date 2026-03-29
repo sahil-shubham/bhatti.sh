@@ -207,6 +207,7 @@ section::before {
     border-radius: var(--border-radius);
     height: 40px;
     overflow: hidden;
+    max-width: 100%;
 }
 
 .copy-block code {
@@ -214,6 +215,10 @@ section::before {
     font-size: 0.875rem;
     color: var(--amber-400);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
 }
 
 .copy-btn {
