@@ -1,4 +1,4 @@
 # Netlify / Cloudflare Pages redirect rules
-# curl -fsSL bhatti.sh/install | sh  →  fetches the real script from GitHub
-/install  https://raw.githubusercontent.com/sahil-shubham/bhatti/main/scripts/install-cli.sh  302
-/install.sh  https://raw.githubusercontent.com/sahil-shubham/bhatti/main/scripts/install-cli.sh  302
+# curl -fsSL bhatti.sh/install | bash  →  fetches the install script from GitHub
+/install  https://raw.githubusercontent.com/sahil-shubham/bhatti/main/scripts/install.sh  302
+/install.sh  https://raw.githubusercontent.com/sahil-shubham/bhatti/main/scripts/install.sh  302
