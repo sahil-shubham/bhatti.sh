@@ -21,7 +21,7 @@ try {
                     href={link.href}
                     {...(link.external ? { target: "_blank", rel: "noopener" } : {})}
                     id={link.id}
-                >{link.label}{link.id === 'gh-link' && <span class:list={['gh-stars', { loaded: buildTimeStars != null }]} id="gh-stars" data-build-stars={buildTimeStars ?? ''}>{buildTimeStars != null ? `★ ${buildTimeStars}` : ''}</span>}</a>
+                >{link.label}{link.id === 'gh-link' && <span class:list={['gh-stars', { loaded: buildTimeStars != null }]} id="gh-stars">{buildTimeStars != null ? `★ ${buildTimeStars}` : ''}</span>}</a>
             ))}
             <a href="#get-started" class="btn btn-amber">Get Started</a>
         </div>
@@ -191,31 +191,6 @@ try {
             menu?.classList.remove('open');
         });
     });
-
-    // Stale-while-revalidate GitHub stars
-    // Build-time count is already in the HTML. Client revalidates via /api/stars
-    // which is edge-cached by Cloudflare (6 hour TTL, shared across all visitors).
-    function showStars(count: number) {
-        const el = document.getElementById('gh-stars');
-        if (el) {
-            el.textContent = `★ ${count}`;
-            el.classList.add('loaded');
-        }
-    }
-
-    const revalidate = async () => {
-        try {
-            const res = await fetch('/api/stars');
-            const { stars } = await res.json();
-            if (stars != null) showStars(stars);
-        } catch {}
-    };
-
-    if ('requestIdleCallback' in window) {
-        requestIdleCallback(() => revalidate());
-    } else {
-        setTimeout(() => revalidate(), 1000);
-    }
 
     // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
