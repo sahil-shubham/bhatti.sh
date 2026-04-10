@@ -1,15 +1,14 @@
 ---
 const docs = [
-    { title: "Quickstart", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/quickstart.md", description: "CLI install, server setup, user management" },
-    { title: "Architecture", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/architecture.md", description: "System design, data flow, concurrency model" },
-    { title: "Wire Protocol", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/wire-protocol.md", description: "Binary framing, connection lifecycle, auth" },
-    { title: "Guest Agent", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/guest-agent.md", description: "PID 1 init, PTY sessions, process management" },
-    { title: "Thermal Management", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/thermal-management.md", description: "Hot/warm/cold states, diff snapshots" },
-    { title: "Networking", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/networking.md", description: "Per-user bridges, iptables isolation" },
-    { title: "API Reference", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/api-reference.md", description: "REST/WebSocket endpoints" },
-    { title: "CLI Reference", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/cli-reference.md", description: "All commands and flags" },
-    { title: "Testing", href: "https://github.com/sahil-shubham/bhatti/blob/main/docs/testing.md", description: "11K lines of tests, zero mocks for VM tests" },
-
+    { title: "Quickstart", href: "/docs/quickstart/", description: "Install, create a sandbox, run your first command" },
+    { title: "Architecture", href: "/docs/architecture/overview/", description: "System design, data flow, concurrency model" },
+    { title: "Wire Protocol", href: "/docs/reference/wire-protocol/", description: "Binary framing, connection lifecycle, auth" },
+    { title: "Guest Agent", href: "/docs/architecture/guest-agent/", description: "PID 1 init, PTY sessions, process management" },
+    { title: "Thermal Management", href: "/docs/sandboxes/thermal/", description: "Hot/warm/cold states, diff snapshots" },
+    { title: "Networking", href: "/docs/sandboxes/networking/", description: "Bridge architecture, IP allocation, proxy" },
+    { title: "API Reference", href: "/docs/reference/cli/", description: "OpenAPI spec and CLI reference" },
+    { title: "CLI Reference", href: "/docs/reference/cli/", description: "All commands and flags" },
+    { title: "Testing", href: "/docs/contributing/testing/", description: "11K lines of tests, zero mocks for VM tests" },
 ];
 ---
 
@@ -20,7 +19,7 @@ const docs = [
 
         <div class="docs-grid">
             {docs.map(doc => (
-                <a href={doc.href} target="_blank" rel="noopener" class="doc-card">
+                <a href={doc.href} class="doc-card">
                     <h3>{doc.title}</h3>
                     <p>{doc.description}</p>
                     <span class="doc-arrow">→</span>

@@ -1,0 +1,228 @@
+/*
+ * bhatti docs — Starlight theme overrides
+ * Matches the bhatti.sh marketing site: zinc grays, amber accent, Geist fonts, dark-only.
+ */
+
+/* ── Color palette ────────────────────────────────────────────────── */
+
+:root,
+:root[data-theme='light'],
+[data-theme='dark'] {
+    /* Backgrounds */
+    --sl-color-black: #09090B;
+    --sl-color-bg: #09090B;
+    --sl-color-bg-nav: rgba(9, 9, 11, 0.8);
+    --sl-color-bg-sidebar: #09090B;
+
+    /* White */
+    --sl-color-white: #FAFAFA;
+
+    /* Accent — amber */
+    --sl-color-accent-low: rgba(249, 115, 22, 0.1);
+    --sl-color-accent: #F97316;
+    --sl-color-accent-high: #FB923C;
+
+    /* Gray scale — zinc */
+    --sl-color-gray-1: #E4E4E7;
+    --sl-color-gray-2: #D4D4D8;
+    --sl-color-gray-3: #A1A1AA;
+    --sl-color-gray-4: #71717A;
+    --sl-color-gray-5: #3F3F46;
+    --sl-color-gray-6: #27272A;
+    --sl-color-gray-7: #18181B;
+
+    /* Text colors */
+    --sl-color-text: #E4E4E7;
+    --sl-color-text-accent: #FB923C;
+
+    /* Typography */
+    --sl-font: 'Geist', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --sl-font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+    /* Match marketing site: 1.6 line-height, not Starlight's 1.75 */
+    --sl-line-height: 1.6;
+    --sl-line-height-headings: 1.1;
+
+    /* Layout */
+    --sl-nav-height: 64px;
+    --sl-sidebar-width: 18rem;
+    --sl-content-width: 50rem;
+}
+
+/* ── Force dark theme ─────────────────────────────────────────────── */
+
+:root {
+    color-scheme: dark;
+}
+
+/* Ensure light theme is never applied even if toggled */
+:root[data-theme='light'] {
+    --sl-color-bg: #09090B;
+    --sl-color-text: #E4E4E7;
+}
+
+/* ── Selection ────────────────────────────────────────────────────── */
+
+::selection {
+    background-color: #F97316;
+    color: #09090B;
+}
+
+/* ── Navigation ───────────────────────────────────────────────────── */
+
+header.header {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────── */
+
+/* Active sidebar item — must be clearly visible */
+nav.sidebar a[aria-current="page"],
+starlight-menu-button + nav a[aria-current="page"] {
+    color: #FAFAFA;
+    font-weight: 600;
+    background-color: rgba(249, 115, 22, 0.1);
+    border-color: #F97316;
+}
+
+/* Sidebar links default — match marketing nav: 0.875rem */
+nav.sidebar a {
+    color: #A1A1AA;
+    font-size: 0.875rem;
+}
+
+nav.sidebar a:hover {
+    color: #E4E4E7;
+}
+
+/* Group headings */
+.sidebar-content details > summary,
+nav.sidebar .top-level > li > details > summary {
+    font-size: 0.8125rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #71717A;
+    font-weight: 600;
+}
+
+nav.sidebar .top-level > li + li {
+    border-top: 1px solid #27272A;
+}
+
+/* ── Code blocks ──────────────────────────────────────────────────── */
+
+.expressive-code pre {
+    background: #000000 !important;
+    border: 1px solid #27272A;
+    border-radius: 4px;
+}
+
+.expressive-code .frame {
+    border-radius: 4px;
+}
+
+/* ── Logo ─────────────────────────────────────────────────────────── */
+
+/* Match marketing site nav: 1.125rem mono, weight 600, zinc-50 */
+.site-title {
+    font-size: 1.125rem !important;
+    font-weight: 600 !important;
+    color: #FAFAFA !important;
+    font-family: var(--sl-font-mono) !important;
+}
+
+/* Hide the SVG logo — we use the text title instead */
+.site-title img {
+    display: none;
+}
+
+/* Un-hide the sr-only title text (Starlight hides it when replacesTitle is true) */
+.site-title .sr-only {
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    clip: auto !important;
+    clip-path: none !important;
+    white-space: nowrap !important;
+    border-width: 0 !important;
+}
+
+/* ── Prose ─────────────────────────────────────────────────────────── */
+
+/* Headings: weight 500, tight tracking — matches marketing site */
+.sl-markdown-content :is(h1, h2, h3, h4, h5, h6) {
+    font-weight: 500;
+    letter-spacing: -0.03em;
+}
+
+/* Page title (outside markdown content) */
+.content-panel h1 {
+    font-weight: 500;
+    letter-spacing: -0.03em;
+}
+
+.sl-markdown-content a {
+    text-decoration-color: #3F3F46;
+    text-underline-offset: 3px;
+    transition: text-decoration-color 0.2s;
+}
+
+.sl-markdown-content a:hover {
+    text-decoration-color: #F97316;
+}
+
+/* ── Tables ────────────────────────────────────────────────────────── */
+
+.sl-markdown-content table {
+    border-collapse: collapse;
+}
+
+.sl-markdown-content th {
+    font-weight: 500;
+    text-align: left;
+    background: #18181B;
+}
+
+.sl-markdown-content td,
+.sl-markdown-content th {
+    border: 1px solid #27272A;
+    padding: 0.5rem 0.75rem;
+}
+
+/* ── Inline code ──────────────────────────────────────────────────── */
+
+.sl-markdown-content :not(pre) > code {
+    background: #18181B;
+    border: 1px solid #27272A;
+    border-radius: 3px;
+    padding: 0.15em 0.35em;
+    font-size: 0.875em;
+}
+
+/* ── Border radius normalization ──────────────────────────────────── */
+
+.card,
+.sl-markdown-content .starlight-aside,
+starlight-tabs [role="tablist"],
+details {
+    border-radius: 4px;
+}
+
+/* ── Search modal ─────────────────────────────────────────────────── */
+
+dialog::backdrop {
+    background: rgba(9, 9, 11, 0.7);
+    backdrop-filter: blur(4px);
+}
+
+/* ── Mobile adjustments ───────────────────────────────────────────── */
+
+@media (max-width: 50rem) {
+    .sidebar-pane {
+        background: #09090B;
+    }
+}
