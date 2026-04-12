@@ -8,6 +8,7 @@ export default defineConfig({
     integrations: [
         starlight({
             title: '[bhatti]',
+            favicon: '/favicon.svg',
             social: [
                 { icon: 'github', label: 'GitHub', href: 'https://github.com/sahil-shubham/bhatti' },
                 { icon: 'external', label: 'bhatti.sh', href: 'https://bhatti.sh' },
