@@ -1,5 +1,5 @@
 ---
-// Terminal animation — continuous scripted demo with persistent UI chrome
+// Terminal animation — scripted demo with boxed input, tool calls, and status bar
 ---
 
 <div class="hero-terminal" id="hero-terminal">
@@ -102,15 +102,15 @@
 
     // --- Action types ---
     type Action =
-        | { type: 'type'; text: string }                          // user types a command in the input box
-        | { type: 'think'; ms: number; label?: string }           // thinking spinner
-        | { type: 'output'; text: string }                        // single-line output
-        | { type: 'stream'; lines: string[]; interval: number }   // streamed output lines
-        | { type: 'tool'; name: string; args?: string; result?: string } // tool call
-        | { type: 'message'; content: string }                    // assistant-style message
-        | { type: 'pause'; ms: number };                          // idle pause
+        | { type: 'type'; text: string }
+        | { type: 'think'; ms: number; label?: string }
+        | { type: 'output'; text: string }
+        | { type: 'stream'; lines: string[]; interval: number }
+        | { type: 'tool'; name: string; args?: string; result?: string }
+        | { type: 'message'; content: string }
+        | { type: 'pause'; ms: number };
 
-    // --- Script: one continuous story ---
+    // --- Script ---
     const SCRIPT: Action[] = [
         { type: 'type', text: 'bhatti create --name dev --cpus 2 --memory 1024' },
         { type: 'think', ms: 2800, label: 'Creating sandbox' },
@@ -177,6 +177,7 @@
         private contentRow = 1;
         private sandboxName: string | null = null;
         private sandboxState: string = 'none';
+        private contextPct: number = 0;
 
         constructor(container: HTMLElement) {
             this.fitAddon = new FitAddon();
@@ -221,15 +222,14 @@
 
         private writeLn(content: string) {
             this.term.writeln(content);
-            const scrollBottom = (this.term.rows || 24) - 3;
+            const scrollBottom = (this.term.rows || 24) - 4;
             this.contentRow = Math.min(this.contentRow + 1, Math.max(scrollBottom, 1));
         }
 
         private setupLayout() {
             const rows = this.term.rows || 24;
-            const scrollBottom = rows - 3;
+            const scrollBottom = rows - 4;
             if (scrollBottom < 1) return;
-            // Set scroll region: rows 1..scrollBottom
             this.term.write(`\x1b[1;${scrollBottom}r`);
             this.drawBottomUI();
             const row = Math.min(this.contentRow, scrollBottom);
@@ -239,30 +239,37 @@
         private drawBottomUI(inputText?: string) {
             const rows = this.term.rows || 24;
             const cols = this.term.cols || 80;
-            const inputWidth = cols - 5;
+            const innerWidth = cols - 2;
 
             // Save cursor
             this.term.write('\x1b[s');
 
-            // --- Input box (row rows-2) ---
-            this.term.write(`\x1b[${rows - 2};1H\x1b[2K`);
-            this.term.write(`${A.border}\u2500${'\u2500'.repeat(cols - 2)}\u2500${A.rst}`);
+            // --- Input box top border (row rows-3) ---
+            this.term.write(`\x1b[${rows - 3};1H\x1b[2K`);
+            this.term.write(`${A.border}\u256d${'\u2500'.repeat(innerWidth)}\u256e${A.rst}`);
 
-            this.term.write(`\x1b[${rows - 1};1H\x1b[2K`);
+            // --- Input box content (row rows-2) ---
+            this.term.write(`\x1b[${rows - 2};1H\x1b[2K`);
+            const textWidth = innerWidth - 4; // "│ $ text │" → inner padding
             if (inputText) {
-                const display = inputText.length > inputWidth ? inputText.slice(inputText.length - inputWidth) : inputText;
-                const pad = Math.max(0, inputWidth - display.length);
+                const display = inputText.length > textWidth
+                    ? inputText.slice(inputText.length - textWidth) : inputText;
+                const pad = Math.max(0, textWidth - display.length);
                 this.term.write(
-                    ` ${A.amber}${A.bold}\$${A.rst} ${A.text}${display}${A.rst}${' '.repeat(pad)}`
+                    `${A.border}\u2502${A.rst} ${A.amber}${A.bold}\$${A.rst} ${A.text}${display}${A.rst}${' '.repeat(pad)}${A.border}\u2502${A.rst}`
                 );
             } else {
                 const ph = 'type a command...';
-                const display = ph.length > inputWidth ? ph.slice(0, inputWidth) : ph;
-                const pad = Math.max(0, inputWidth - display.length);
+                const display = ph.length > textWidth ? ph.slice(0, textWidth) : ph;
+                const pad = Math.max(0, textWidth - display.length);
                 this.term.write(
-                    ` ${A.amber}${A.bold}\$${A.rst} ${A.muted}${display}${A.rst}${' '.repeat(pad)}`
+                    `${A.border}\u2502${A.rst} ${A.amber}${A.bold}\$${A.rst} ${A.muted}${display}${A.rst}${' '.repeat(pad)}${A.border}\u2502${A.rst}`
                 );
             }
+
+            // --- Input box bottom border (row rows-1) ---
+            this.term.write(`\x1b[${rows - 1};1H\x1b[2K`);
+            this.term.write(`${A.border}\u2570${'\u2500'.repeat(innerWidth)}\u256f${A.rst}`);
 
             // --- Status bar (last row) ---
             this.term.write(`\x1b[${rows};1H\x1b[2K`);
@@ -283,6 +290,13 @@
                 parts.push(`${A.muted}2 vCPU · 1GB${A.rst}`);
             }
 
+            // Context bar
+            if (cols >= 40) {
+                const filled = Math.round(this.contextPct / 10);
+                const bar = `${A.olive}[${'='.repeat(filled)}${' '.repeat(10 - filled)}]${A.rst} ${A.muted}${this.contextPct}%${A.rst}`;
+                parts.push(bar);
+            }
+
             // Firecracker badge
             if (cols >= 60) {
                 parts.push(`${A.muted}firecracker${A.rst}`);
@@ -294,40 +308,54 @@
             this.term.write('\x1b[u');
         }
 
+        private writeUserBox(text: string) {
+            const cols = this.term.cols || 80;
+            const innerWidth = cols - 2;
+            const textWidth = innerWidth - 4;
+            const display = text.length > textWidth ? text.slice(0, textWidth) : text;
+            const pad = Math.max(0, textWidth - display.length);
+
+            this.writeLn(`${A.border}\u256d${'\u2500'.repeat(innerWidth)}\u256e${A.rst}`);
+            this.writeLn(
+                `${A.border}\u2502${A.rst} ${A.amber}${A.bold}\$${A.rst} ${A.text}${display}${A.rst}${' '.repeat(pad)}${A.border}\u2502${A.rst}`
+            );
+            this.writeLn(`${A.border}\u2570${'\u2500'.repeat(innerWidth)}\u256f${A.rst}`);
+            this.writeLn('');
+        }
+
         private async typeInInput(text: string) {
             const rows = this.term.rows || 24;
             const cols = this.term.cols || 80;
-            const inputWidth = cols - 5;
+            const innerWidth = cols - 2;
+            const textWidth = innerWidth - 4;
 
             // Animate typing in the input box
             for (let i = 0; i < text.length; i++) {
                 if (this.destroyed) return;
                 const soFar = text.slice(0, i + 1);
-                const display = soFar.length > inputWidth
-                    ? soFar.slice(soFar.length - inputWidth)
-                    : soFar;
-                const pad = Math.max(0, inputWidth - display.length);
+                const display = soFar.length > textWidth
+                    ? soFar.slice(soFar.length - textWidth) : soFar;
+                const pad = Math.max(0, textWidth - display.length);
 
-                this.term.write(`\x1b[${rows - 1};1H\x1b[2K`);
+                this.term.write(`\x1b[${rows - 2};1H\x1b[2K`);
                 this.term.write(
-                    ` ${A.amber}${A.bold}\$${A.rst} ${A.text}${display}${A.rst}${' '.repeat(pad)}`
+                    `${A.border}\u2502${A.rst} ${A.amber}${A.bold}\$${A.rst} ${A.text}${display}${A.rst}${' '.repeat(pad)}${A.border}\u2502${A.rst}`
                 );
 
-                // Natural typing rhythm: fast per-char, pauses between tokens
+                // Natural typing rhythm
                 const ch = text[i];
-                const next = text[i + 1];
                 let d = 14 + Math.random() * 14;
                 if (ch === ' ' || ch === '-') d += 40 + Math.random() * 60;
-                if (next === undefined) d += 200;
+                if (i === text.length - 1) d += 200;
                 await this.delay(d);
             }
 
             await this.delay(300);
 
-            // Move cursor into content area and echo the command there
-            const scrollBottom = (this.term.rows || 24) - 3;
+            // Position cursor in scroll region and echo as boxed message
+            const scrollBottom = (this.term.rows || 24) - 4;
             this.term.write(`\x1b[${Math.min(this.contentRow, scrollBottom)};1H`);
-            this.writeLn(`${A.amber}\$${A.rst} ${A.text}${text}${A.rst}`);
+            this.writeUserBox(text);
 
             // Clear input
             this.drawBottomUI();
@@ -338,8 +366,8 @@
             let frame = 0;
             let dots = 0;
             const dotFrames = ['', '.', '..', '...'];
-            const lbl = label || 'Running';
-            const scrollBottom = (this.term.rows || 24) - 3;
+            const lbl = label || 'Thinking';
+            const scrollBottom = (this.term.rows || 24) - 4;
 
             const render = () => {
                 const row = Math.min(this.contentRow, scrollBottom);
@@ -361,9 +389,21 @@
             if (this.thinkingInterval) {
                 clearInterval(this.thinkingInterval);
                 this.thinkingInterval = null;
-                const scrollBottom = (this.term.rows || 24) - 3;
+                const scrollBottom = (this.term.rows || 24) - 4;
                 const row = Math.min(this.contentRow, scrollBottom);
                 this.term.write(`\x1b[${row};1H\x1b[2K`);
+            }
+        }
+
+        private writeToolPending(name: string, args?: string) {
+            const argStr = args ? ` ${A.muted}${args}${A.rst}` : '';
+            this.writeLn(`${A.muted}${A.italic}    … ${name}${argStr}${A.rst}`);
+        }
+
+        private writeToolComplete(name: string, result?: string) {
+            this.writeLn(`${A.cyan}    ✓ ${A.bold}${name}${A.rst}`);
+            if (result) {
+                this.writeLn(`${A.muted}      → ${result}${A.rst}`);
             }
         }
 
@@ -372,6 +412,7 @@
 
             switch (action.type) {
                 case 'type':
+                    this.contextPct = Math.min(100, this.contextPct + 3);
                     await this.typeInInput(action.text);
 
                     // Track sandbox state
@@ -405,11 +446,12 @@
                     break;
 
                 case 'tool': {
-                    const argStr = action.args ? ` ${A.muted}${action.args}${A.rst}` : '';
-                    this.writeLn(`  ${A.green}✓${A.rst} ${A.bold}${action.name}${A.rst}${argStr}`);
-                    if (action.result) {
-                        this.writeLn(`    ${A.muted}→ ${action.result}${A.rst}`);
-                    }
+                    this.contextPct = Math.min(100, this.contextPct + 2);
+
+                    // Two-phase: show pending, wait, then show complete
+                    this.writeToolPending(action.name, action.args);
+                    await this.delay(800 + Math.random() * 400);
+                    this.writeToolComplete(action.name, action.result);
 
                     // Update state after tool result
                     if (action.name === 'create') {
@@ -419,11 +461,14 @@
                         this.sandboxState = 'none';
                     }
                     this.drawBottomUI();
+                    await this.delay(400);
                     break;
                 }
 
                 case 'message':
+                    this.contextPct = Math.min(100, this.contextPct + 1);
                     this.writeLn(`  ${action.content}`);
+                    this.drawBottomUI();
                     break;
 
                 case 'pause':
@@ -445,11 +490,12 @@
                 this.contentRow = 1;
                 this.sandboxName = null;
                 this.sandboxState = 'none';
+                this.contextPct = 0;
 
                 this.setupLayout();
                 this.drawBottomUI();
 
-                // Welcome line
+                // Welcome
                 this.writeLn(`${A.muted}${A.italic}  bhatti sandbox orchestrator — firecracker microVMs${A.rst}`);
                 this.writeLn('');
 
@@ -478,7 +524,6 @@
         engine = new DemoEngine(container);
     }
 
-    // Lazy init on visible
     const obs = new IntersectionObserver(entries => {
         if (entries[0]?.isIntersecting) { init(); obs.disconnect(); }
     }, { threshold: 0.1 });
