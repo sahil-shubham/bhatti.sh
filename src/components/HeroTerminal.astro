@@ -1,5 +1,6 @@
 ---
-// Terminal animation — scripted demo with boxed input, tool calls, and status bar
+// Terminal animation — scripted demo inspired by deer.sh's ScriptedDemoEngine
+// Single continuous flow with bottom input box, status bar, and thinking spinner
 ---
 
 <div class="hero-terminal" id="hero-terminal">
@@ -17,16 +18,24 @@
 <style>
     .hero-terminal {
         border: 1px solid var(--zinc-800);
-        border-radius: var(--border-radius);
+        border-radius: 12px;
         overflow: hidden;
         box-shadow: 0 24px 48px rgba(0,0,0,0.5);
         display: flex;
         flex-direction: column;
-        height: 390px;
+        height: 400px;
+        opacity: 0;
+        transform: translateY(20px);
+        transition: opacity 700ms ease-out, transform 700ms ease-out;
+    }
+
+    .hero-terminal.visible {
+        opacity: 1;
+        transform: translateY(0);
     }
 
     .terminal-chrome {
-        height: 36px;
+        height: 40px;
         background: var(--zinc-900);
         border-bottom: 1px solid var(--zinc-800);
         display: flex;
@@ -51,8 +60,9 @@
 
     .terminal-title {
         font-family: var(--font-mono);
-        font-size: 0.6875rem;
-        color: var(--zinc-500);
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--zinc-400);
     }
 
     #hero-xterm {
@@ -64,7 +74,7 @@
 
     #hero-xterm :global(.xterm) {
         height: 100%;
-        padding: 12px 0 12px 12px;
+        padding: 8px 0 0 0;
     }
 
     #hero-xterm :global(.xterm-viewport) {
@@ -74,6 +84,12 @@
     #hero-xterm :global(.xterm-viewport::-webkit-scrollbar) {
         display: none;
     }
+
+    @media (max-width: 768px) {
+        .hero-terminal {
+            height: 350px;
+        }
+    }
 </style>
 
 <script>
@@ -81,67 +97,86 @@
     import { FitAddon } from '@xterm/addon-fit';
     import '@xterm/xterm/css/xterm.css';
 
-    // --- ANSI codes ---
+    // --- ANSI helpers ---
     const A = {
-        dim: '\x1b[2m',
-        bold: '\x1b[1m',
+        rst:    '\x1b[0m',
+        bold:   '\x1b[1m',
         italic: '\x1b[3m',
-        rst: '\x1b[0m',
-        amber: '\x1b[38;5;208m',
-        yellow: '\x1b[33m',
-        green: '\x1b[32m',
-        cyan: '\x1b[36m',
-        red: '\x1b[31m',
-        muted: '\x1b[38;2;113;113;122m',    // zinc-500
-        border: '\x1b[38;2;63;63;70m',       // zinc-700
-        text: '\x1b[38;2;228;228;231m',      // zinc-200
-        olive: '\x1b[38;2;163;190;140m',
+        dim:    '\x1b[2m',
+        amber:  '\x1b[38;2;249;115;22m',
+        green:  '\x1b[38;2;34;197;94m',
+        cyan:   '\x1b[38;2;6;182;212m',
+        red:    '\x1b[38;2;239;68;68m',
+        muted:  '\x1b[38;2;113;113;122m',
+        text:   '\x1b[38;2;228;228;231m',
+        border: '\x1b[38;2;63;63;70m',
+        olive:  '\x1b[38;2;163;190;140m',
     } as const;
 
-    const SPINNER = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+    const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    const DOTS = ['', '.', '..', '...'];
 
-    // --- Action types ---
+    // --- Script actions ---
     type Action =
-        | { type: 'type'; text: string }
-        | { type: 'think'; ms: number; label?: string }
-        | { type: 'output'; text: string }
-        | { type: 'stream'; lines: string[]; interval: number }
-        | { type: 'tool'; name: string; args?: string; result?: string }
-        | { type: 'message'; content: string }
-        | { type: 'pause'; ms: number };
+        | { type: 'cmd';     text: string }
+        | { type: 'out';     text: string }
+        | { type: 'stream';  lines: string[]; interval: number }
+        | { type: 'think';   ms: number; label?: string }
+        | { type: 'pause';   ms: number }
+        | { type: 'status';  sandbox?: string | null; state?: string };
 
-    // --- Script ---
     const SCRIPT: Action[] = [
-        { type: 'type', text: 'bhatti create --name dev --cpus 2 --memory 1024' },
-        { type: 'think', ms: 2800, label: 'Creating sandbox' },
-        { type: 'tool', name: 'create', args: 'name=dev, cpus=2, mem=1024MB', result: 'sandbox "dev" (a1b2c3d4) created in 3.4s' },
-        { type: 'pause', ms: 400 },
+        // --- Create sandbox ---
+        { type: 'status', sandbox: null, state: 'ready' },
+        { type: 'cmd', text: 'bhatti create --name dev --cpus 2 --memory 1024' },
+        { type: 'think', ms: 3200, label: 'Booting microVM' },
+        { type: 'status', sandbox: 'dev', state: 'running' },
+        { type: 'out', text: `${A.green}✓${A.rst} Created sandbox ${A.dim}"dev"${A.rst} (a1b2c3d4) in ${A.text}3.2s${A.rst}` },
+        { type: 'pause', ms: 600 },
 
-        { type: 'type', text: 'bhatti exec dev -- uname -a' },
-        { type: 'think', ms: 60 },
-        { type: 'output', text: 'Linux dev 6.1.155 #1 SMP x86_64 GNU/Linux' },
-        { type: 'pause', ms: 400 },
-
-        { type: 'type', text: 'bhatti exec dev -- node -e "console.log(\'hello from firecracker\')"' },
+        // --- Quick exec ---
+        { type: 'cmd', text: 'bhatti exec dev -- uname -a' },
         { type: 'think', ms: 80 },
-        { type: 'output', text: 'hello from firecracker' },
+        { type: 'out', text: 'Linux dev 6.1.155 #1 SMP x86_64 GNU/Linux' },
         { type: 'pause', ms: 400 },
 
-        { type: 'type', text: 'bhatti exec dev -- npm install express' },
-        { type: 'think', ms: 1800, label: 'Installing' },
-        { type: 'stream', interval: 350, lines: [
-            `${A.dim}added 65 packages in 2.1s${A.rst}`,
-            `${A.dim}14 packages are looking for funding${A.rst}`,
-        ]},
-        { type: 'pause', ms: 400 },
+        { type: 'cmd', text: 'bhatti exec dev -- node -e "console.log(\'hello from firecracker\')"' },
+        { type: 'think', ms: 100 },
+        { type: 'out', text: 'hello from firecracker' },
+        { type: 'pause', ms: 500 },
 
-        { type: 'type', text: 'bhatti shell dev' },
-        { type: 'think', ms: 200 },
-        { type: 'message', content: `${A.muted}Attached to sandbox "dev"${A.rst}` },
+        { type: 'cmd', text: 'bhatti exec dev -- cat /etc/os-release | head -2' },
+        { type: 'think', ms: 60 },
+        { type: 'out', text: 'PRETTY_NAME="Ubuntu 24.04.2 LTS"' },
+        { type: 'out', text: 'NAME="Ubuntu"' },
+        { type: 'pause', ms: 600 },
 
-        { type: 'type', text: 'npm run build' },
-        { type: 'think', ms: 1200, label: 'Building' },
+        // --- Streaming exec: npm install ---
+        { type: 'cmd', text: 'bhatti exec dev -- npm install express' },
+        { type: 'think', ms: 300 },
         { type: 'stream', interval: 400, lines: [
+            `${A.dim}added 65 packages in 2.1s${A.rst}`,
+            '',
+            `${A.dim}14 packages are looking for funding${A.rst}`,
+            `${A.dim}  run \`npm fund\` for details${A.rst}`,
+        ]},
+        { type: 'pause', ms: 500 },
+
+        // --- Shell into sandbox ---
+        { type: 'cmd', text: 'bhatti shell dev' },
+        { type: 'think', ms: 200, label: 'Connecting' },
+        { type: 'status', state: 'shell' },
+        { type: 'out', text: `${A.dim}Connected to ${A.text}dev${A.dim} (a1b2c3d4)${A.rst}` },
+        { type: 'pause', ms: 300 },
+
+        { type: 'cmd', text: 'ls' },
+        { type: 'think', ms: 40 },
+        { type: 'out', text: `${A.green}node_modules${A.rst}  package.json  package-lock.json  ${A.green}src${A.rst}` },
+        { type: 'pause', ms: 400 },
+
+        { type: 'cmd', text: 'npm run build' },
+        { type: 'think', ms: 200 },
+        { type: 'stream', interval: 500, lines: [
             '> build',
             '> tsc && node esbuild.js',
             '',
@@ -149,22 +184,29 @@
         ]},
         { type: 'pause', ms: 600 },
 
-        { type: 'message', content: `${A.yellow}[detached — Ctrl+\\]${A.rst}` },
-        { type: 'pause', ms: 600 },
-        { type: 'message', content: `${A.dim}# sandbox auto-paused after 30s idle (vCPUs frozen)${A.rst}` },
+        // --- Detach ---
+        { type: 'out', text: '' },
+        { type: 'out', text: `${A.amber}[detached — Ctrl+\\]${A.rst}` },
+        { type: 'status', state: 'ready' },
         { type: 'pause', ms: 800 },
 
-        { type: 'type', text: 'bhatti exec dev -- echo "instant"' },
-        { type: 'think', ms: 40 },
-        { type: 'output', text: `${A.dim}[warm → hot in 0.4ms]${A.rst}` },
-        { type: 'output', text: 'instant' },
+        // --- Auto-pause & instant resume ---
+        { type: 'out', text: `${A.muted}${A.italic}  sandbox auto-paused after 30s idle (vCPUs frozen)${A.rst}` },
+        { type: 'status', state: 'paused' },
+        { type: 'pause', ms: 1200 },
+
+        { type: 'cmd', text: 'bhatti exec dev -- echo "instant"' },
+        { type: 'think', ms: 50 },
+        { type: 'status', state: 'running' },
+        { type: 'out', text: `${A.dim}[warm → hot in 0.4ms]${A.rst}` },
+        { type: 'out', text: 'instant' },
         { type: 'pause', ms: 600 },
 
-        { type: 'type', text: 'bhatti destroy dev' },
-        { type: 'think', ms: 300 },
-        { type: 'tool', name: 'destroy', args: 'name=dev', result: 'sandbox "dev" destroyed' },
+        { type: 'cmd', text: 'bhatti exec dev -- echo "1ms exec on a real VM"' },
+        { type: 'think', ms: 50 },
+        { type: 'out', text: '1ms exec on a real VM' },
 
-        { type: 'pause', ms: 6000 },
+        { type: 'pause', ms: 8000 },
     ];
 
     // --- Engine ---
@@ -173,11 +215,11 @@
         private fitAddon: FitAddon;
         private destroyed = false;
         private timers: ReturnType<typeof setTimeout>[] = [];
-        private thinkingInterval: ReturnType<typeof setInterval> | null = null;
+        private thinkInterval: ReturnType<typeof setInterval> | null = null;
         private contentRow = 1;
-        private sandboxName: string | null = null;
-        private sandboxState: string = 'none';
-        private contextPct: number = 0;
+        private sandbox: string | null = null;
+        private vmState = 'ready';
+        private inShell = false;
 
         constructor(container: HTMLElement) {
             this.fitAddon = new FitAddon();
@@ -191,10 +233,17 @@
                     background: '#09090b',
                     foreground: '#e4e4e7',
                     cursor: '#09090b',
-                    selectionBackground: '#F9731640',
-                    black: '#3f3f46', red: '#ef4444', green: '#22c55e', yellow: '#eab308',
-                    blue: '#3b82f6', magenta: '#a855f7', cyan: '#06b6d4', white: '#d4d4d8',
-                    brightBlack: '#71717a', brightWhite: '#fafafa',
+                    selectionBackground: '#3B82F640',
+                    black: '#09090b',
+                    red: '#ef4444',
+                    green: '#22c55e',
+                    yellow: '#eab308',
+                    blue: '#3b82f6',
+                    magenta: '#a855f7',
+                    cyan: '#06b6d4',
+                    white: '#d4d4d8',
+                    brightBlack: '#71717a',
+                    brightWhite: '#fafafa',
                 },
                 scrollback: 0,
                 convertEol: true,
@@ -214,229 +263,186 @@
         }
 
         private delay(ms: number): Promise<void> {
-            return new Promise((resolve) => {
-                const id = setTimeout(resolve, ms);
+            return new Promise(r => {
+                const id = setTimeout(r, ms);
                 this.timers.push(id);
             });
         }
 
         private writeLn(content: string) {
             this.term.writeln(content);
-            const scrollBottom = (this.term.rows || 24) - 4;
+            const scrollBottom = (this.term.rows || 24) - 3;
             this.contentRow = Math.min(this.contentRow + 1, Math.max(scrollBottom, 1));
         }
 
         private setupLayout() {
             const rows = this.term.rows || 24;
-            const scrollBottom = rows - 4;
+            const scrollBottom = rows - 3;
             if (scrollBottom < 1) return;
+            // Set scroll region — bottom 3 rows reserved for input box + status
             this.term.write(`\x1b[1;${scrollBottom}r`);
-            this.drawBottomUI();
+            this.drawBottom();
             const row = Math.min(this.contentRow, scrollBottom);
             this.term.write(`\x1b[${row};1H`);
         }
 
-        private drawBottomUI(inputText?: string) {
+        private drawBottom(inputText?: string) {
             const rows = this.term.rows || 24;
             const cols = this.term.cols || 80;
-            const innerWidth = cols - 2;
+            const innerW = cols - 4; // space for "│ $ ... │"
 
-            // Save cursor
-            this.term.write('\x1b[s');
+            this.term.write('\x1b[s'); // save cursor
 
-            // --- Input box top border (row rows-3) ---
-            this.term.write(`\x1b[${rows - 3};1H\x1b[2K`);
-            this.term.write(`${A.border}\u256d${'\u2500'.repeat(innerWidth)}\u256e${A.rst}`);
-
-            // --- Input box content (row rows-2) ---
+            // --- Input box: top border ---
             this.term.write(`\x1b[${rows - 2};1H\x1b[2K`);
-            const textWidth = innerWidth - 4; // "│ $ text │" → inner padding
+            this.term.write(`${A.border}\u256d${'\u2500'.repeat(cols - 2)}\u256e${A.rst}`);
+
+            // --- Input box: content ---
+            this.term.write(`\x1b[${rows - 1};1H\x1b[2K`);
+            const prompt = this.inShell
+                ? `${A.amber}${A.bold}lohar@${this.sandbox || 'dev'}:~$${A.rst} `
+                : `${A.amber}${A.bold}$${A.rst} `;
+            // Visible char count of prompt (no ANSI)
+            const promptLen = this.inShell ? (this.sandbox || 'dev').length + 13 : 2;
+            const maxLen = Math.max(1, innerW - promptLen);
+
             if (inputText) {
-                const display = inputText.length > textWidth
-                    ? inputText.slice(inputText.length - textWidth) : inputText;
-                const pad = Math.max(0, textWidth - display.length);
+                const display = inputText.length > maxLen ? inputText.slice(inputText.length - maxLen) : inputText;
+                const pad = Math.max(0, maxLen - display.length);
                 this.term.write(
-                    `${A.border}\u2502${A.rst} ${A.amber}${A.bold}\$${A.rst} ${A.text}${display}${A.rst}${' '.repeat(pad)}${A.border}\u2502${A.rst}`
+                    `${A.border}\u2502${A.rst} ${prompt}${A.text}${display}${A.rst}${' '.repeat(pad)} ${A.border}\u2502${A.rst}`
                 );
             } else {
-                const ph = 'type a command...';
-                const display = ph.length > textWidth ? ph.slice(0, textWidth) : ph;
-                const pad = Math.max(0, textWidth - display.length);
+                const placeholder = 'Type a command...';
+                const display = placeholder.length > maxLen ? placeholder.slice(0, maxLen) : placeholder;
+                const pad = Math.max(0, maxLen - display.length);
                 this.term.write(
-                    `${A.border}\u2502${A.rst} ${A.amber}${A.bold}\$${A.rst} ${A.muted}${display}${A.rst}${' '.repeat(pad)}${A.border}\u2502${A.rst}`
+                    `${A.border}\u2502${A.rst} ${prompt}${A.muted}${display}${A.rst}${' '.repeat(pad)} ${A.border}\u2502${A.rst}`
                 );
             }
 
-            // --- Input box bottom border (row rows-1) ---
-            this.term.write(`\x1b[${rows - 1};1H\x1b[2K`);
-            this.term.write(`${A.border}\u2570${'\u2500'.repeat(innerWidth)}\u256f${A.rst}`);
-
-            // --- Status bar (last row) ---
+            // --- Status bar (integrates bottom border of input box) ---
             this.term.write(`\x1b[${rows};1H\x1b[2K`);
-            const div = `${A.muted} │ ${A.rst}`;
+
+            const sep = `${A.muted} · ${A.rst}`;
             const parts: string[] = [];
 
-            // Sandbox state
-            if (this.sandboxName) {
-                const stateColor = this.sandboxState === 'running' ? A.green :
-                                   this.sandboxState === 'paused' ? A.yellow : A.muted;
-                parts.push(`${A.cyan}${this.sandboxName}${A.rst} ${stateColor}${this.sandboxState}${A.rst}`);
+            // Sandbox state dot
+            if (this.sandbox) {
+                const stateColor = this.vmState === 'running' || this.vmState === 'shell'
+                    ? A.green
+                    : this.vmState === 'paused' ? A.amber : A.muted;
+                parts.push(`${stateColor}●${A.rst} ${A.text}${this.sandbox}${A.rst}`);
             } else {
-                parts.push(`${A.muted}no sandbox${A.rst}`);
+                parts.push(`${A.muted}● no sandbox${A.rst}`);
             }
 
-            // VM specs
-            if (this.sandboxName && cols >= 50) {
-                parts.push(`${A.muted}2 vCPU · 1GB${A.rst}`);
+            // Mode badge
+            if (this.inShell) {
+                parts.push(`${A.cyan}SHELL${A.rst}`);
             }
 
-            // Context bar
-            if (cols >= 40) {
-                const filled = Math.round(this.contextPct / 10);
-                const bar = `${A.olive}[${'='.repeat(filled)}${' '.repeat(10 - filled)}]${A.rst} ${A.muted}${this.contextPct}%${A.rst}`;
-                parts.push(bar);
-            }
-
-            // Firecracker badge
-            if (cols >= 60) {
+            // Engine label
+            if (cols >= 50) {
                 parts.push(`${A.muted}firecracker${A.rst}`);
             }
 
-            this.term.write(' ' + parts.join(div));
+            this.term.write(` ${A.border}\u2570\u2500${A.rst} ${parts.join(sep)}`);
 
-            // Restore cursor
-            this.term.write('\x1b[u');
+            this.term.write('\x1b[u'); // restore cursor
         }
 
-        private writeUserBox(text: string) {
-            const cols = this.term.cols || 80;
-            const innerWidth = cols - 2;
-            const textWidth = innerWidth - 4;
-            const display = text.length > textWidth ? text.slice(0, textWidth) : text;
-            const pad = Math.max(0, textWidth - display.length);
-
-            this.writeLn(`${A.border}\u256d${'\u2500'.repeat(innerWidth)}\u256e${A.rst}`);
-            this.writeLn(
-                `${A.border}\u2502${A.rst} ${A.amber}${A.bold}\$${A.rst} ${A.text}${display}${A.rst}${' '.repeat(pad)}${A.border}\u2502${A.rst}`
-            );
-            this.writeLn(`${A.border}\u2570${'\u2500'.repeat(innerWidth)}\u256f${A.rst}`);
-            this.writeLn('');
-        }
-
-        private async typeInInput(text: string) {
+        /** Type text character-by-character into the bottom input box */
+        private async typeInBox(text: string) {
             const rows = this.term.rows || 24;
             const cols = this.term.cols || 80;
-            const innerWidth = cols - 2;
-            const textWidth = innerWidth - 4;
+            const innerW = cols - 4;
+            const prompt = this.inShell
+                ? `${A.amber}${A.bold}lohar@${this.sandbox || 'dev'}:~$${A.rst} `
+                : `${A.amber}${A.bold}$${A.rst} `;
+            const promptLen = this.inShell ? (this.sandbox || 'dev').length + 13 : 2;
+            const maxLen = Math.max(1, innerW - promptLen);
 
-            // Animate typing in the input box
-            for (let i = 0; i < text.length; i++) {
-                if (this.destroyed) return;
-                const soFar = text.slice(0, i + 1);
-                const display = soFar.length > textWidth
-                    ? soFar.slice(soFar.length - textWidth) : soFar;
-                const pad = Math.max(0, textWidth - display.length);
+            // Tokenize for natural chunked typing rhythm
+            const tokens = text.match(/\S+|\s+/g) || [text];
 
-                this.term.write(`\x1b[${rows - 2};1H\x1b[2K`);
-                this.term.write(
-                    `${A.border}\u2502${A.rst} ${A.amber}${A.bold}\$${A.rst} ${A.text}${display}${A.rst}${' '.repeat(pad)}${A.border}\u2502${A.rst}`
-                );
-
-                // Natural typing rhythm
-                const ch = text[i];
-                let d = 14 + Math.random() * 14;
-                if (ch === ' ' || ch === '-') d += 40 + Math.random() * 60;
-                if (i === text.length - 1) d += 200;
-                await this.delay(d);
+            let typed = '';
+            for (let t = 0; t < tokens.length; t++) {
+                const token = tokens[t];
+                for (const ch of token) {
+                    if (this.destroyed) return;
+                    typed += ch;
+                    const display = typed.length > maxLen ? typed.slice(typed.length - maxLen) : typed;
+                    const pad = Math.max(0, maxLen - display.length);
+                    this.term.write(`\x1b[${rows - 1};1H\x1b[2K`);
+                    this.term.write(
+                        `${A.border}\u2502${A.rst} ${prompt}${A.text}${display}${A.rst}${' '.repeat(pad)} ${A.border}\u2502${A.rst}`
+                    );
+                    await this.delay(18 + Math.random() * 14);
+                }
+                // Inter-token pause (the "thinking" gap between words)
+                if (t < tokens.length - 1 && !/^\s+$/.test(token)) {
+                    await this.delay(50 + Math.random() * 80);
+                }
             }
 
             await this.delay(300);
 
-            // Position cursor in scroll region and echo as boxed message
-            const scrollBottom = (this.term.rows || 24) - 4;
+            // Echo the command into the scroll region
+            const scrollBottom = (this.term.rows || 24) - 3;
             this.term.write(`\x1b[${Math.min(this.contentRow, scrollBottom)};1H`);
-            this.writeUserBox(text);
 
-            // Clear input
-            this.drawBottomUI();
+            const echoPrompt = this.inShell
+                ? `${A.amber}lohar@${this.sandbox || 'dev'}:~$${A.rst} `
+                : `${A.amber}$${A.rst} `;
+            this.writeLn(`${echoPrompt}${A.text}${text}${A.rst}`);
+
+            // Reset input box to placeholder
+            this.drawBottom();
         }
 
+        /** Show an animated spinner with optional label + dots */
         private startThinking(label?: string) {
-            if (this.thinkingInterval) return;
+            if (this.thinkInterval) return;
             let frame = 0;
-            let dots = 0;
-            const dotFrames = ['', '.', '..', '...'];
-            const lbl = label || 'Thinking';
-            const scrollBottom = (this.term.rows || 24) - 4;
-
+            let dotIdx = 0;
+            const lbl = label || 'Running';
             const render = () => {
+                const scrollBottom = (this.term.rows || 24) - 3;
                 const row = Math.min(this.contentRow, scrollBottom);
                 this.term.write(`\x1b[${row};1H\x1b[2K`);
                 this.term.write(
-                    `  ${A.amber}${SPINNER[frame]}${A.rst} ${A.muted}${A.italic}${lbl}${dotFrames[dots]}${A.rst}`
+                    `  ${A.amber}${SPINNER[frame % SPINNER.length]}${A.rst} ${A.muted}${A.italic}${lbl}${DOTS[dotIdx % DOTS.length]}${A.rst}`
                 );
             };
-
             render();
-            this.thinkingInterval = setInterval(() => {
-                frame = (frame + 1) % SPINNER.length;
-                dots = (dots + 1) % dotFrames.length;
+            this.thinkInterval = setInterval(() => {
+                frame++;
+                // Advance dots every ~4 spinner frames
+                if (frame % 4 === 0) dotIdx++;
                 render();
-            }, 200);
+            }, 100);
         }
 
         private stopThinking() {
-            if (this.thinkingInterval) {
-                clearInterval(this.thinkingInterval);
-                this.thinkingInterval = null;
-                const scrollBottom = (this.term.rows || 24) - 4;
+            if (this.thinkInterval) {
+                clearInterval(this.thinkInterval);
+                this.thinkInterval = null;
+                const scrollBottom = (this.term.rows || 24) - 3;
                 const row = Math.min(this.contentRow, scrollBottom);
                 this.term.write(`\x1b[${row};1H\x1b[2K`);
-            }
-        }
-
-        private writeToolPending(name: string, args?: string) {
-            const argStr = args ? ` ${A.muted}${args}${A.rst}` : '';
-            this.writeLn(`${A.muted}${A.italic}    … ${name}${argStr}${A.rst}`);
-        }
-
-        private writeToolComplete(name: string, result?: string) {
-            this.writeLn(`${A.cyan}    ✓ ${A.bold}${name}${A.rst}`);
-            if (result) {
-                this.writeLn(`${A.muted}      → ${result}${A.rst}`);
             }
         }
 
         private async runAction(action: Action) {
             if (this.destroyed) return;
-
             switch (action.type) {
-                case 'type':
-                    this.contextPct = Math.min(100, this.contextPct + 3);
-                    await this.typeInInput(action.text);
-
-                    // Track sandbox state
-                    if (action.text.includes('bhatti create')) {
-                        const m = action.text.match(/--name\s+(\S+)/);
-                        if (m) { this.sandboxName = m[1]; this.sandboxState = 'creating'; }
-                    } else if (action.text.includes('bhatti shell')) {
-                        this.sandboxState = 'attached';
-                    } else if (action.text.includes('bhatti destroy')) {
-                        this.sandboxState = 'destroying';
-                    }
-                    this.drawBottomUI();
+                case 'cmd':
+                    await this.typeInBox(action.text);
                     break;
-
-                case 'think':
-                    this.startThinking(action.label);
-                    await this.delay(action.ms);
-                    this.stopThinking();
-                    break;
-
-                case 'output':
+                case 'out':
                     this.writeLn(`  ${action.text}`);
                     break;
-
                 case 'stream':
                     for (const line of action.lines) {
                         if (this.destroyed) return;
@@ -444,60 +450,44 @@
                         await this.delay(action.interval + Math.random() * action.interval * 0.3);
                     }
                     break;
-
-                case 'tool': {
-                    this.contextPct = Math.min(100, this.contextPct + 2);
-
-                    // Two-phase: show pending, wait, then show complete
-                    this.writeToolPending(action.name, action.args);
-                    await this.delay(800 + Math.random() * 400);
-                    this.writeToolComplete(action.name, action.result);
-
-                    // Update state after tool result
-                    if (action.name === 'create') {
-                        this.sandboxState = 'running';
-                    } else if (action.name === 'destroy') {
-                        this.sandboxName = null;
-                        this.sandboxState = 'none';
+                case 'think':
+                    if (action.ms > 150) {
+                        this.startThinking(action.label);
+                        await this.delay(action.ms);
+                        this.stopThinking();
+                    } else {
+                        await this.delay(action.ms);
                     }
-                    this.drawBottomUI();
-                    await this.delay(400);
                     break;
-                }
-
-                case 'message':
-                    this.contextPct = Math.min(100, this.contextPct + 1);
-                    this.writeLn(`  ${action.content}`);
-                    this.drawBottomUI();
-                    break;
-
                 case 'pause':
-                    // For the auto-pause narrative, update state
-                    if (this.sandboxState === 'attached') {
-                        this.sandboxState = 'paused';
-                        this.drawBottomUI();
-                    }
                     await this.delay(action.ms);
+                    break;
+                case 'status':
+                    if (action.sandbox !== undefined) this.sandbox = action.sandbox;
+                    if (action.state) this.vmState = action.state;
+                    this.inShell = this.vmState === 'shell';
+                    this.drawBottom();
                     break;
             }
         }
 
+        private writeWelcome() {
+            this.writeLn('');
+            this.writeLn(`  ${A.amber}${A.bold}bhatti${A.rst} ${A.muted}v0.1.0${A.rst}`);
+            this.writeLn(`  ${A.muted}Self-hosted sandbox orchestrator${A.rst}`);
+            this.writeLn('');
+        }
+
         private async run() {
             while (!this.destroyed) {
-                // Reset state
+                this.sandbox = null;
+                this.vmState = 'ready';
+                this.inShell = false;
+                this.contentRow = 1;
                 this.term.clear();
                 this.term.reset();
-                this.contentRow = 1;
-                this.sandboxName = null;
-                this.sandboxState = 'none';
-                this.contextPct = 0;
-
                 this.setupLayout();
-                this.drawBottomUI();
-
-                // Welcome
-                this.writeLn(`${A.muted}${A.italic}  bhatti sandbox orchestrator — firecracker microVMs${A.rst}`);
-                this.writeLn('');
+                this.writeWelcome();
 
                 for (const action of SCRIPT) {
                     if (this.destroyed) return;
@@ -521,9 +511,20 @@
     function init() {
         const container = document.getElementById('hero-xterm');
         if (!container || engine) return;
-        engine = new DemoEngine(container);
+
+        const wrapper = document.getElementById('hero-terminal');
+        if (wrapper) {
+            requestAnimationFrame(() => wrapper.classList.add('visible'));
+        }
+
+        // Delay engine start until fade-in animation completes
+        setTimeout(() => {
+            if (!container || engine) return;
+            engine = new DemoEngine(container);
+        }, 700);
     }
 
+    // Lazy init on visible
     const obs = new IntersectionObserver(entries => {
         if (entries[0]?.isIntersecting) { init(); obs.disconnect(); }
     }, { threshold: 0.1 });
