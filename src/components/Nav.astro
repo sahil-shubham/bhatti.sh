@@ -192,6 +192,20 @@ try {
         });
     });
 
+    // Client-side fallback for GitHub stars (build-time fetch may fail in CI)
+    const starsEl = document.getElementById('gh-stars');
+    if (starsEl && !starsEl.classList.contains('loaded')) {
+        fetch('https://api.github.com/repos/sahil-shubham/bhatti')
+            .then(r => r.json())
+            .then(data => {
+                if (data.stargazers_count != null) {
+                    starsEl.textContent = `★ ${data.stargazers_count}`;
+                    starsEl.classList.add('loaded');
+                }
+            })
+            .catch(() => {});
+    }
+
     // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
         anchor.addEventListener('click', (e) => {
