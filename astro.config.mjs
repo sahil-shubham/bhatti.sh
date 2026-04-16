@@ -10,7 +10,6 @@ export default defineConfig({
             title: '[bhatti]',
             social: [
                 { icon: 'github', label: 'GitHub', href: 'https://github.com/sahil-shubham/bhatti' },
-                { icon: 'external', label: 'bhatti.sh', href: 'https://bhatti.sh' },
             ],
             customCss: [
                 './src/styles/bhatti-docs.css',
