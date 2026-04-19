@@ -140,14 +140,14 @@
 
 <style>
     .section-heading { font-size: 2.5rem; }
-    .section-sub { color: var(--zinc-400); font-size: 1rem; }
+    .section-sub { color: var(--text-secondary); font-size: 1rem; }
     .mb-16 { margin-bottom: 16px; }
     .mb-48 { margin-bottom: 48px; }
 
     /* Host container */
     .layer--host {
-        border: 1px solid var(--zinc-800);
-        background: linear-gradient(180deg, rgba(24,24,27,0.3), rgba(9,9,11,0.8));
+        border: 1px solid var(--border-color);
+        background: linear-gradient(180deg, var(--bg-inset), var(--bg-surface));
         padding: 36px 28px 28px;
         border-radius: var(--border-radius);
         position: relative;
@@ -160,11 +160,11 @@
         position: absolute;
         top: -10px;
         left: 16px;
-        background: var(--zinc-950);
+        background: var(--bg-page);
         padding: 0 8px;
         font-family: var(--font-mono);
         font-size: 0.6875rem;
-        color: var(--zinc-500);
+        color: var(--text-muted);
         text-transform: uppercase;
         letter-spacing: 0.1em;
     }
@@ -199,13 +199,13 @@
         font-family: var(--font-mono);
         font-size: 0.875rem;
         font-weight: 600;
-        color: var(--zinc-50);
+        color: var(--text-primary);
     }
 
     .layer-port, .layer-tag {
         font-family: var(--font-mono);
         font-size: 0.6875rem;
-        color: var(--zinc-500);
+        color: var(--text-muted);
     }
 
     /* VM multiplicity badge */
@@ -227,8 +227,8 @@
     }
 
     .daemon-component {
-        background: var(--zinc-950);
-        border: 1px solid var(--zinc-800);
+        background: var(--bg-surface);
+        border: 1px solid var(--border-color);
         border-radius: 3px;
         padding: 14px 12px;
         cursor: pointer;
@@ -237,18 +237,18 @@
     }
 
     .daemon-component:hover { border-color: rgba(249,115,22,0.4); }
-    .daemon-component.active { border-color: var(--amber-500); background: rgba(249,115,22,0.03); }
+    .daemon-component.active { border-color: var(--amber-500); background: rgba(249,115,22,0.05); }
 
     .comp-name {
         font-family: var(--font-mono);
         font-size: 0.8125rem;
-        color: var(--zinc-200);
+        color: var(--text-primary);
         margin-bottom: 4px;
     }
 
     .comp-detail {
         font-size: 0.6875rem;
-        color: var(--zinc-500);
+        color: var(--text-muted);
         line-height: 1.4;
     }
 
@@ -274,16 +274,16 @@
         gap: 2px;
     }
 
-    .flow-channel:hover .flow-label { color: var(--zinc-200); }
+    .flow-channel:hover .flow-label { color: var(--text-primary); }
     .flow-channel.active .flow-label { color: var(--amber-500); }
-    .flow-channel:hover .flow-direction { color: var(--zinc-400); }
+    .flow-channel:hover .flow-direction { color: var(--text-secondary); }
     .flow-channel.active .flow-direction { color: var(--amber-400); }
 
     .flow-label {
         font-family: var(--font-mono);
         font-size: 0.75rem;
-        color: var(--zinc-500);
-        background: var(--zinc-950);
+        color: var(--text-muted);
+        background: var(--bg-inset);
         padding: 0 16px;
         position: relative;
         z-index: 1;
@@ -293,7 +293,7 @@
     .flow-direction {
         font-family: var(--font-mono);
         font-size: 0.625rem;
-        color: var(--zinc-600);
+        color: var(--text-muted);
         position: relative;
         z-index: 1;
         transition: color 0.2s;
@@ -306,7 +306,7 @@
         left: 0;
         right: 0;
         height: 1px;
-        background: var(--zinc-800);
+        background: var(--border-color);
         overflow: hidden;
     }
 
@@ -350,10 +350,10 @@
         position: relative;
         /* Stacked card effect — implies ×N multiplicity */
         box-shadow:
-            5px 5px 0 -1px var(--zinc-950),
-            5px 5px 0 0 rgba(59,130,246,0.08),
-            10px 10px 0 -1px var(--zinc-950),
-            10px 10px 0 0 rgba(59,130,246,0.04);
+            5px 5px 0 -1px var(--bg-page),
+            5px 5px 0 0 rgba(59,130,246,0.12),
+            10px 10px 0 -1px var(--bg-page),
+            10px 10px 0 0 rgba(59,130,246,0.06);
     }
 
     .layer--vm:hover { border-color: rgba(59,130,246,0.35); }
@@ -366,7 +366,8 @@
         gap: 6px;
         margin-bottom: 14px;
         padding: 6px 10px;
-        background: rgba(9,9,11,0.5);
+        background: var(--bg-surface);
+        border: 1px solid var(--border-subtle);
         border-radius: 2px;
         width: fit-content;
     }
@@ -398,7 +399,7 @@
 
     .thermal-arrow {
         font-size: 0.625rem;
-        color: var(--zinc-600);
+        color: var(--text-muted);
     }
 
     .vm-internals {
@@ -409,7 +410,7 @@
 
     /* Lohar — green identity */
     .vm-lohar {
-        background: var(--zinc-950);
+        background: var(--bg-surface);
         border: 1px solid rgba(34,197,94,0.15);
         border-radius: 3px;
         padding: 16px;
@@ -418,7 +419,7 @@
     }
 
     .vm-lohar:hover { border-color: rgba(34,197,94,0.4); }
-    .vm-lohar.active { border-color: #22c55e; background: rgba(34,197,94,0.03); }
+    .vm-lohar.active { border-color: #22c55e; background: rgba(34,197,94,0.05); }
 
     .lohar-grid {
         display: grid;
@@ -430,9 +431,9 @@
     .lohar-item {
         font-family: var(--font-mono);
         font-size: 0.75rem;
-        color: var(--zinc-400);
+        color: var(--text-secondary);
         padding: 6px 8px;
-        background: rgba(24,24,27,0.5);
+        background: var(--bg-inset);
         border-radius: 2px;
     }
 
@@ -443,18 +444,18 @@
         gap: 8px;
         font-family: var(--font-mono);
         font-size: 0.75rem;
-        color: var(--zinc-400);
+        color: var(--text-secondary);
         margin-top: 14px;
         padding: 8px 10px;
-        border: 1px solid rgba(59,130,246,0.1);
+        border: 1px solid rgba(59,130,246,0.15);
         border-radius: 3px;
         cursor: pointer;
         transition: border-color 0.2s, color 0.2s, background 0.2s;
-        background: rgba(59,130,246,0.02);
+        background: rgba(59,130,246,0.03);
     }
 
-    .vm-guest-net:hover { border-color: rgba(59,130,246,0.35); color: var(--zinc-200); }
-    .vm-guest-net.active { border-color: #3b82f6; color: var(--zinc-50); background: rgba(59,130,246,0.05); }
+    .vm-guest-net:hover { border-color: rgba(59,130,246,0.35); color: var(--text-primary); }
+    .vm-guest-net.active { border-color: #3b82f6; color: var(--text-primary); background: rgba(59,130,246,0.08); }
 
     .vm-guest-net .net-dot {
         background: #3b82f6;
@@ -472,7 +473,7 @@
         justify-content: center;
         padding-left: 18px;
         margin-left: 18px;
-        border-left: 1px dashed var(--zinc-700);
+        border-left: 1px dashed var(--zinc-300);
         position: relative;
     }
 
@@ -486,7 +487,7 @@
     .storage-label {
         font-family: var(--font-mono);
         font-size: 0.625rem;
-        color: var(--zinc-500);
+        color: var(--text-muted);
         text-transform: uppercase;
         letter-spacing: 0.08em;
     }
@@ -494,14 +495,14 @@
     .storage-sub {
         font-family: var(--font-mono);
         font-size: 0.5625rem;
-        color: var(--zinc-600);
+        color: var(--text-muted);
         letter-spacing: 0.02em;
     }
 
     .storage-path {
         font-family: var(--font-mono);
         font-size: 0.5625rem;
-        color: var(--zinc-600);
+        color: var(--text-muted);
         margin-top: 4px;
     }
 
@@ -509,9 +510,9 @@
     .disk {
         font-family: var(--font-mono);
         font-size: 0.75rem;
-        color: var(--zinc-400);
-        background: var(--zinc-950);
-        border: 1px solid var(--zinc-800);
+        color: var(--text-secondary);
+        background: var(--bg-surface);
+        border: 1px solid var(--border-color);
         border-radius: 2px;
         padding: 8px 12px;
         cursor: pointer;
@@ -519,8 +520,8 @@
         white-space: nowrap;
     }
 
-    .disk:hover { border-color: var(--zinc-500); color: var(--zinc-200); }
-    .disk.active { border-color: var(--amber-500); color: var(--zinc-50); }
+    .disk:hover { border-color: var(--zinc-400); color: var(--text-primary); }
+    .disk.active { border-color: var(--amber-500); color: var(--text-primary); }
 
     /* Network boundary */
     .net-boundary {
@@ -533,21 +534,21 @@
     .boundary-line {
         flex: 1;
         height: 1px;
-        border-top: 1px dashed var(--zinc-700);
+        border-top: 1px dashed var(--zinc-300);
     }
 
     .boundary-label {
         font-family: var(--font-mono);
         font-size: 0.625rem;
-        color: var(--zinc-600);
+        color: var(--text-muted);
         white-space: nowrap;
         letter-spacing: 0.02em;
     }
 
     /* Host networking */
     .layer--net {
-        border: 1px solid var(--zinc-800);
-        background: var(--zinc-900);
+        border: 1px solid var(--border-color);
+        background: var(--bg-surface);
         padding: 16px 20px;
         border-radius: var(--border-radius);
         position: relative;
@@ -556,7 +557,7 @@
     .net-section-label {
         font-family: var(--font-mono);
         font-size: 0.5625rem;
-        color: var(--zinc-600);
+        color: var(--text-muted);
         text-transform: uppercase;
         letter-spacing: 0.1em;
         margin-bottom: 10px;
@@ -574,7 +575,7 @@
         gap: 8px;
         font-family: var(--font-mono);
         font-size: 0.75rem;
-        color: var(--zinc-400);
+        color: var(--text-secondary);
         white-space: nowrap;
         cursor: pointer;
         padding: 4px 8px;
@@ -583,25 +584,25 @@
         transition: border-color 0.2s, color 0.2s, background 0.2s;
     }
 
-    .net-node:hover { border-color: var(--zinc-600); color: var(--zinc-200); background: var(--zinc-950); }
-    .net-node.active { border-color: var(--amber-500); color: var(--zinc-50); background: rgba(249,115,22,0.03); }
+    .net-node:hover { border-color: var(--zinc-400); color: var(--text-primary); background: var(--bg-inset); }
+    .net-node.active { border-color: var(--amber-500); color: var(--text-primary); background: rgba(249,115,22,0.05); }
 
     .net-dot {
         width: 6px;
         height: 6px;
         border-radius: 50%;
-        background: var(--zinc-600);
+        background: var(--zinc-400);
         flex-shrink: 0;
     }
 
-    .net-node:hover .net-dot { background: var(--zinc-400); }
+    .net-node:hover .net-dot { background: var(--zinc-500); }
     .net-node.active .net-dot { background: var(--amber-500); }
 
     .net-line {
         flex: 1;
         min-width: 12px;
         height: 1px;
-        background: var(--zinc-700);
+        background: var(--zinc-300);
         margin: 0 4px;
     }
 
@@ -610,7 +611,7 @@
         margin-top: 28px;
         border: 1px solid rgba(249,115,22,0.2);
         border-radius: var(--border-radius);
-        background: var(--zinc-900);
+        background: var(--bg-surface);
         transition: border-color 0.3s, opacity 0.3s, max-height 0.3s;
         display: none;
         overflow: hidden;
@@ -625,7 +626,7 @@
         justify-content: space-between;
         align-items: center;
         padding: 16px 24px;
-        border-bottom: 1px solid var(--zinc-800);
+        border-bottom: 1px solid var(--border-color);
         min-height: 54px;
     }
 
@@ -637,8 +638,8 @@
 
     .detail-close {
         background: none;
-        border: 1px solid var(--zinc-800);
-        color: var(--zinc-400);
+        border: 1px solid var(--border-color);
+        color: var(--text-muted);
         width: 28px;
         height: 28px;
         border-radius: var(--border-radius);
@@ -649,7 +650,7 @@
         justify-content: center;
     }
 
-    .detail-close:hover { color: var(--zinc-50); border-color: var(--zinc-600); }
+    .detail-close:hover { color: var(--text-primary); border-color: var(--zinc-400); }
 
     .detail-body {
         padding: 0 24px;
@@ -658,7 +659,7 @@
         transition: max-height 0.3s ease-out, padding 0.3s ease-out;
         font-size: 0.875rem;
         line-height: 1.7;
-        color: var(--zinc-300);
+        color: var(--text-secondary);
     }
 
     .detail-area.has-content .detail-body {
@@ -667,17 +668,17 @@
         overflow-y: auto;
     }
 
-    .detail-body :global(p) { margin-bottom: 12px; color: var(--zinc-400); }
+    .detail-body :global(p) { margin-bottom: 12px; color: var(--text-secondary); }
     .detail-body :global(.eg) { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-    .detail-body :global(h4) { font-family: var(--font-mono); font-size: 0.75rem; color: var(--zinc-50); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
-    .detail-body :global(pre) { background: #000; border: 1px solid var(--zinc-800); border-radius: var(--border-radius); padding: 14px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.5; color: var(--zinc-300); margin-bottom: 12px; }
+    .detail-body :global(h4) { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-primary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .detail-body :global(pre) { background: var(--zinc-950); border: 1px solid var(--border-color); border-radius: var(--border-radius); padding: 14px; overflow-x: auto; font-family: var(--font-mono); font-size: 0.8125rem; line-height: 1.5; color: var(--zinc-300); margin-bottom: 12px; }
     .detail-body :global(.hl) { color: var(--amber-500); }
     .detail-body :global(.cm) { color: var(--zinc-500); }
     .detail-body :global(.kw) { color: #c084fc; }
     .detail-body :global(.st) { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-    .detail-body :global(.st th), .detail-body :global(.st td) { padding: 8px 10px; border-bottom: 1px solid var(--zinc-800); font-size: 0.8125rem; text-align: left; }
-    .detail-body :global(.st th) { font-family: var(--font-mono); color: var(--zinc-500); font-weight: 400; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; }
-    .detail-body :global(.doc-link) { display: inline-flex; align-items: center; gap: 6px; color: var(--zinc-400); font-family: var(--font-mono); font-size: 0.75rem; text-decoration: none; transition: color 0.2s; margin-top: 4px; }
+    .detail-body :global(.st th), .detail-body :global(.st td) { padding: 8px 10px; border-bottom: 1px solid var(--border-color); font-size: 0.8125rem; text-align: left; }
+    .detail-body :global(.st th) { font-family: var(--font-mono); color: var(--text-muted); font-weight: 400; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .detail-body :global(.doc-link) { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-family: var(--font-mono); font-size: 0.75rem; text-decoration: none; transition: color 0.2s; margin-top: 4px; }
     .detail-body :global(.doc-link:hover) { color: var(--amber-500); }
 
     @media (max-width: 768px) {
@@ -686,7 +687,7 @@
         .vm-storage-row { flex-direction: column; gap: 14px; }
         .host-storage {
             border-left: none;
-            border-top: 1px dashed var(--zinc-700);
+            border-top: 1px dashed var(--zinc-300);
             margin-left: 0;
             padding-left: 0;
             padding-top: 14px;
