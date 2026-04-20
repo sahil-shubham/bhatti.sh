@@ -18,12 +18,10 @@ Read the latest Linear comments for feedback, then revise.
 
 ## Your task
 
-You are in **planning mode.** Your one job: produce an implementation
-plan and write it to this exact path:
+You are in **planning mode.** Your deliverable is a Linear document
+attached to this issue containing your implementation plan.
 
-  `/workspace/docs/PLAN-{{ issue.identifier }}.md`
-
-Do NOT implement code. Do NOT open PRs. Write the plan file and stop.
+Do NOT implement code. Do NOT open PRs. Produce the plan and stop.
 
 ## Steps
 
@@ -34,16 +32,37 @@ Do NOT implement code. Do NOT open PRs. Write the plan file and stop.
    - `src/styles/` — global styles
    - `astro.config.mjs` — Starlight config, sidebar, nav
 
-2. Write the plan file at `/workspace/docs/PLAN-{{ issue.identifier }}.md`.
+2. Create a Linear document on this issue with your plan.
+   Use the `linear_graphql` tool with this mutation:
+
+   ```graphql
+   mutation CreatePlanDocument($issueId: String!, $title: String!, $content: String!) {
+     documentCreate(input: {
+       issueId: $issueId,
+       title: $title,
+       content: $content
+     }) {
+       success
+       document { id url }
+     }
+   }
+   ```
+
+   Variables:
+   - `issueId`: `{{ issue.id }}`
+   - `title`: `Plan: {{ issue.identifier }}`
+   - `content`: your plan in markdown
+
    The plan must contain:
    - **What changes** — which files are created/modified
    - **Content outline** — what the new/changed content says
    - **Design notes** — layout, styling, component choices
    - **Assets** — any images or media needed (or "none")
 
-3. Verify the file exists: `cat /workspace/docs/PLAN-{{ issue.identifier }}.md`
+3. Verify the document was created by querying:
 
-4. Post a single comment on the Linear issue ({{ issue.id }}) summarizing
-   the plan in 2–3 sentences.
+   ```graphql
+   query { issue(id: "{{ issue.id }}") { documents { nodes { title } } } }
+   ```
 
-You are done when the plan file exists at the path above. Do not stop before that.
+You are done when the document exists on the issue. Do not stop before that.
