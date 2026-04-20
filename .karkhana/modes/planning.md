@@ -18,32 +18,26 @@ Read the latest Linear comments for feedback, then revise.
 
 ## Your task
 
-You are in **planning mode.** Your one job: produce an implementation
-plan and write it to this exact path:
+You are in **planning mode.** Your deliverable is a plan file at:
 
   `/workspace/docs/PLAN-{{ issue.identifier }}.md`
 
 Do NOT implement code. Do NOT open PRs. Write the plan file and stop.
 
-## Steps
+## How to work
 
-1. Read the codebase to understand the Astro/Starlight structure:
-   - `src/content/docs/` — documentation pages (MDX)
-   - `src/pages/` — standalone pages
-   - `src/components/` — reusable components
-   - `src/styles/` — global styles
-   - `astro.config.mjs` — Starlight config, sidebar, nav
+1. Quickly scan the project structure (2-3 tool calls max — ls, find).
+   Don't read every file. Get the lay of the land.
 
-2. Write the plan file at `/workspace/docs/PLAN-{{ issue.identifier }}.md`.
+2. **Write the plan file immediately.** Don't wait until you've read
+   everything. A good-enough plan now beats a perfect plan never.
    The plan must contain:
    - **What changes** — which files are created/modified
    - **Content outline** — what the new/changed content says
    - **Design notes** — layout, styling, component choices
    - **Assets** — any images or media needed (or "none")
 
-3. Verify the file exists: `cat /workspace/docs/PLAN-{{ issue.identifier }}.md`
+3. Verify: `cat /workspace/docs/PLAN-{{ issue.identifier }}.md`
 
-4. Post a single comment on the Linear issue ({{ issue.id }}) summarizing
-   the plan in 2–3 sentences.
-
-You are done when the plan file exists at the path above. Do not stop before that.
+You are done when the plan file exists. Stop immediately after verifying.
+Do not refine, do not explore further, do not post comments.
