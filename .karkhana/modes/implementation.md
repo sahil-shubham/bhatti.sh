@@ -42,4 +42,7 @@ message if so).
 5. Push the branch:
    `git push -u origin {{ issue.identifier | downcase }}`
 
-You are done when the branch is pushed and the build passes.
+6. Open a pull request:
+   `gh pr create --title "{{ issue.identifier }}: <summary of changes>" --body "Resolves {{ issue.url }}" --base main`
+
+You are done when the PR is open, the branch is pushed, and the build passes.

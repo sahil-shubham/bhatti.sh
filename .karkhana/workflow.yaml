@@ -93,3 +93,8 @@ modes:
         command: "cd /workspace && git log --oneline -1 origin/$(git branch --show-current) 2>/dev/null"
         on_failure: retry_with_feedback
         message: "Push the branch before completing"
+      - name: pr-opened
+        check: command
+        command: "cd /workspace && gh pr view --json url -q .url 2>/dev/null"
+        on_failure: retry_with_feedback
+        message: "Open a pull request: gh pr create --title '{{ issue.identifier }}: <summary>' --body 'Resolves {{ issue.url }}' --base main"
