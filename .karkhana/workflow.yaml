@@ -82,6 +82,7 @@ modes:
 
   implementation:
     prompt: modes/implementation.md
+    publish: 4321
     agent: { max_turns: 10 }
     gates:
       - name: builds
@@ -98,3 +99,8 @@ modes:
         command: "cd /workspace && gh pr view --json url -q .url 2>/dev/null"
         on_failure: retry_with_feedback
         message: "Open a pull request: gh pr create --title '{{ issue.identifier }}: <summary>' --body 'Resolves {{ issue.url }}' --base main"
+      - name: preview-running
+        check: command
+        command: "curl -sf http://localhost:4321/ > /dev/null 2>&1"
+        on_failure: retry_with_feedback
+        message: "Start a preview server: cd /workspace && npx astro preview --host 0.0.0.0 &"

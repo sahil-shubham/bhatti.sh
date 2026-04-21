@@ -45,4 +45,10 @@ message if so).
 6. Open a pull request:
    `gh pr create --title "{{ issue.identifier }}: <summary of changes>" --body "Resolves {{ issue.url }}" --base main`
 
-You are done when the PR is open, the branch is pushed, and the build passes.
+7. Start a preview server so reviewers can see your changes:
+   `cd /workspace && npx astro preview --host 0.0.0.0 &`
+   Wait a few seconds for it to start, then verify:
+   `curl -sf http://localhost:4321/ > /dev/null && echo 'preview running'`
+
+You are done when the PR is open, the branch is pushed, the build passes,
+and the preview server is running on port 4321.
