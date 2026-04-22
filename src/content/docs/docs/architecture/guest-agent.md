@@ -113,10 +113,14 @@ Every exec inherits a merged environment:
 ```
 defaults (PATH, TERM, HOME, LANG)
     ↓ overridden by
-config drive env (secrets, API keys)
+secrets (from bhatti secret set)
+    ↓ overridden by
+sandbox env (from create --env)
     ↓ overridden by
 per-request env (from EXEC_REQ)
 ```
+
+The config drive contains both secrets and sandbox env vars, but secrets are overridden by sandbox env.
 
 ## Testing Without VMs
 

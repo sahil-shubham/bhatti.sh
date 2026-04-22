@@ -3,7 +3,17 @@ title: Images
 description: Rootfs images from OCI registries, Docker, or sandbox snapshots.
 ---
 
-Images are rootfs filesystems used as the base for new sandboxes. bhatti ships with a minimal Ubuntu 24.04 image. You can pull additional images from OCI registries, import from Docker, or save a sandbox's filesystem as a reusable image.
+Images are rootfs filesystems used as the base for new sandboxes. bhatti ships with three image tiers. You can also pull additional images from OCI registries, import from Docker, or save a sandbox's filesystem as a reusable image.
+
+## Image tiers
+
+| Tier | Contents | Size |
+|------|----------|------|
+| **minimal** | Ubuntu 24.04 + lohar | ~200MB |
+| **browser** | + Node 22 + headless_shell + Playwright | ~600MB |
+| **docker** | + Docker Engine + containerd | ~550MB |
+
+The `minimal` tier is installed by default. Browser and docker tiers can be installed during setup or pulled later.
 
 ## Available images
 

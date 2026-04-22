@@ -19,6 +19,10 @@ data_dir: /var/lib/bhatti
 | `listen` | `:8080` | Address and port for the HTTP API |
 | `data_dir` | `/var/lib/bhatti` | Root directory for all state (DB, images, sandboxes) |
 
+## Rate Limiting
+
+The server applies per-alias and global rate limiting to published preview URLs to protect against abuse. Per-user rate limits are enforced on API requests based on user configuration (see [Users & Auth](/docs/managing/users/)).
+
 ## CLI configuration
 
 CLI users configure their client with `bhatti setup` or manually:

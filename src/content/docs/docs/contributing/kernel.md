@@ -3,13 +3,13 @@ title: Kernel
 description: Custom kernel configuration and build process for Firecracker microVMs.
 ---
 
-bhatti uses a custom-built Linux kernel optimized for Firecracker microVMs. The kernel is minimal — only the features needed for sandbox workloads are enabled.
+bhatti uses a custom-built Linux 6.1.x kernel (currently 6.1.155) optimized for Firecracker microVMs. The base config starts from Firecracker's CI config. The kernel is minimal — only the features needed for sandbox workloads are enabled.
 
 ## Building
 
 ```bash
 # Clone the kernel source
-git clone --depth 1 --branch v6.1 https://github.com/torvalds/linux.git
+git clone --depth 1 --branch v6.1.155 https://github.com/torvalds/linux.git
 cd linux
 
 # Apply the bhatti config

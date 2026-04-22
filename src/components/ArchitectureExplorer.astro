@@ -739,7 +739,7 @@
 ag := vm.Agent       <span class="cm">// capture ref</span>
 vm.stateMu.Unlock()  <span class="cm">// release lock</span>
 <span class="kw">return</span> ag.Exec(cmd)   <span class="cm">// no lock held</span></pre><p>Each VM gets its own mutex. Shell calls last hours — can't hold the lock.</p></div></div>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/architecture.md" target="_blank">Architecture doc →</a>`
+<a class="doc-link" href="/docs/architecture/overview/">Architecture doc →</a>`
         },
         "api": {
             title: "REST / WebSocket API",
@@ -753,7 +753,7 @@ Accept: application/x-ndjson
 <div><h4>File ops with server-side truncation</h4><pre>GET /sandboxes/:id/files
   ?path=/app.log
   &amp;offset=1&amp;limit=2000&amp;max_bytes=51200</pre><p>472µs for a 1KB read. No fork, no pipe, single TCP connection.</p></div></div>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/api-reference.md" target="_blank">API reference →</a>`
+<a class="doc-link" href="/docs/reference/api/">API reference →</a>`
         },
         "thermal": {
             title: "Thermal Manager",
@@ -765,14 +765,14 @@ Accept: application/x-ndjson
 <p>Idle 30s → warm. Idle 30min → cold. <code>ensureHot()</code> before every operation.</p></div>
 <div><h4>The vsock bug</h4><p>Vsock breaks after snapshot/restore — connections complete the host handshake but never reach the guest. Confirmed across kernel 5.10, 6.1, FC 1.6.0. SlicerVM had the same unsolved issue.</p>
 <p>Fix: TCP over virtio-net post-restore. Lohar listens on both. +0.1ms.</p></div></div>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/thermal-management.md" target="_blank">Thermal management →</a>`
+<a class="doc-link" href="/docs/sandboxes/thermal/">Thermal management →</a>`
         },
         "engine": {
             title: "Firecracker Engine",
             html: `<p>Direct HTTP to Firecracker's Unix socket — no SDK, ~20 lines of helpers instead of 15K lines of Swagger.</p>
 <div class="eg"><div><h4>Diff snapshots</h4><table class="st"><tr><th>Type</th><th>Writes</th><th>512MB VM</th></tr><tr><td>Full (first)</td><td>every page</td><td>~4.4s</td></tr><tr><td>Diff (subsequent)</td><td>dirty pages only</td><td>~52ms</td></tr></table><p><code>track_dirty_pages: true</code>. Fallback to full if base missing.</p></div>
 <div><h4>Recovery</h4><p><code>recoverVMs()</code> reads SQLite on restart. Handles JSON float64 ↔ SQLite int coercion. Orphaned TAP devices cleaned up before VMs load.</p></div></div>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/decisions.md" target="_blank">Design decisions →</a>`
+<a class="doc-link" href="/docs/architecture/decisions/">Design decisions →</a>`
         },
         "store": {
             title: "SQLite + age encryption",
@@ -793,7 +793,7 @@ fc_state    <span class="cm">— per-VM Firecracker config for recovery</span></
 └────────────────┴───────────┴──────────────────────┘
 Max frame: 1MB.</pre><h4>Atomic writes</h4><p>Piped exec has stdout+stderr goroutines writing concurrently. <code>WriteFrame</code> assembles the entire frame into one buffer. Without this, concurrent chunks interleave.</p></div>
 <div><h4>Frame types</h4><table class="st"><tr><th>Type</th><th>Byte</th><th>Use</th></tr><tr><td>STDIN/OUT/ERR</td><td>0x01–03</td><td>I/O streams</td></tr><tr><td>RESIZE</td><td>0x04</td><td>[u16 rows][u16 cols]</td></tr><tr><td>EXIT</td><td>0x05</td><td>[i32 exit code]</td></tr><tr><td>EXEC_REQ</td><td>0x10</td><td>JSON exec request</td></tr><tr><td>AUTH</td><td>0x11</td><td>per-sandbox token</td></tr><tr><td>FILE_*</td><td>0x50–57</td><td>read/write/stat/ls</td></tr></table><p>One connection per op. TTY sessions stay open. Unknown types skipped.</p></div></div>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/wire-protocol.md" target="_blank">Protocol spec →</a>`
+<a class="doc-link" href="/docs/reference/wire-protocol/">Protocol spec →</a>`
         },
         "lohar": {
             title: "lohar — Guest Agent (PID 1)",
@@ -807,7 +807,7 @@ Max frame: 1MB.</pre><h4>Atomic writes</h4><p>Piped exec has stdout+stderr gorou
 <span class="kw">select</span> {} <span class="cm">// PID 1 never exits</span></pre></div>
 <div><h4>Session model</h4><p>Every TTY exec = persistent session + 64KB ring buffer. Disconnect detaches (no SIGHUP). Reattach replays scrollback.</p>
 <h4>Kill semantics</h4><table class="st"><tr><th>Context</th><th>Signal</th></tr><tr><td>Piped exec</td><td>SIGKILL to process group</td></tr><tr><td>TTY disconnect</td><td>None (detach)</td></tr><tr><td>TTY kill</td><td>SIGTERM to process group</td></tr></table></div></div>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/guest-agent.md" target="_blank">Guest agent doc →</a>`
+<a class="doc-link" href="/docs/architecture/guest-agent/">Guest agent doc →</a>`
         },
         "vm": {
             title: "Firecracker microVM",
@@ -829,7 +829,7 @@ Max frame: 1MB.</pre><h4>Atomic writes</h4><p>Piped exec has stdout+stderr gorou
 <tr><td><span class="hl">docker</span></td><td>+ Docker Engine + containerd</td><td>~550MB</td></tr></table>
 <p>Browser uses <code>headless_shell</code> — Chrome 133+ broke CDP in new headless mode.</p></div>
 <div><h4>Custom kernel (16 flags)</h4><p>Starts from Firecracker CI config (v1.15, kernel 6.1.155). Adds Docker networking (IP_NF_RAW, VXLAN, MACVLAN), VPN (TUN, WIREGUARD), FUSE, kernel TLS, AppArmor, Landlock. Each documented with cost when unused.</p>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/kernel.md" target="_blank">Kernel doc →</a></div></div>`
+<a class="doc-link" href="/docs/contributing/kernel/">Kernel doc →</a></div></div>`
         },
         "configdrive": {
             title: "Config Drive (config.ext4)",
