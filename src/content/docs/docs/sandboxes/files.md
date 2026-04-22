@@ -77,7 +77,7 @@ Capped at 10,000 entries. If truncated, a sentinel entry indicates the total cou
 
 ## Performance
 
-Measured on Raspberry Pi 5 (ARM64, NVMe):
+Measured on Raspberry Pi 5 (ARM64, NVMe). For Hetzner AX102 (x86_64) numbers, see the landing page benchmarks.
 
 | Operation | p50 | p95 |
 |-----------|-----|-----|

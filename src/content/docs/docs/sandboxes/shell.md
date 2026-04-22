@@ -46,7 +46,7 @@ The `init` script from sandbox creation also runs as a session (ID: `"init"`). Y
 
 ```bash
 bhatti ps dev
-# SESSSION   CMD                  TTY   RUNNING  ATTACHED
+# SESSION    CMD                  TTY   RUNNING  ATTACHED
 # init       npm install          yes   yes      no
 # s1         /bin/zsh -li         yes   yes      yes
 ```

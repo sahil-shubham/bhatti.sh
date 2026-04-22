@@ -39,7 +39,7 @@ $ bhatti shell project`
     },
     {
         title: "Multi-Tenant Sandboxing",
-        description: "Each user gets isolated API keys, network segments, resource caps, and rate limits. VMs from different users cannot communicate.",
+        description: "Each user gets isolated API keys, resource caps, and rate limits. All VMs share a bridge with per-VM network interfaces.",
         code: `<span class="c"># Per-user isolation at every layer</span>
 $ sudo bhatti user create --name alice \\
     --max-sandboxes 5
@@ -49,10 +49,10 @@ $ sudo bhatti user create --name bob \\
     --max-cpus 4 --max-memory 4096
 
 <span class="c"># Each user gets:</span>
-<span class="c"># - Dedicated bridge + /24 subnet</span>
 <span class="c"># - Scoped API key (SHA-256 auth)</span>
 <span class="c"># - Per-user rate limits</span>
-<span class="c"># - Encrypted secrets (age)</span>`
+<span class="c"># - Encrypted secrets (age)</span>
+<span class="c"># - Shared bridge, per-VM TAP device</span>`
     },
 ];
 ---

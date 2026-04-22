@@ -1,6 +1,6 @@
 ---
 title: Networking
-description: Per-user bridges, IP allocation, internet access, and DNS.
+description: Shared bridge, IP allocation, internet access, and DNS.
 ---
 
 Every sandbox gets its own network interface, IP address, and internet access through a shared bridge on the host.

@@ -53,7 +53,7 @@ bhatti destroy dev
 3. `bhatti shell` opened a WebSocket connection and attached a PTY session.
 4. `bhatti destroy` stopped the VM and cleaned up all resources.
 
-The sandbox was a full Linux environment — not a container. It had its own kernel, its own `/proc`, its own network stack. When idle, it would have been automatically paused and snapshotted to disk, resuming in under 3ms when you needed it again.
+The sandbox was a full Linux environment — not a container. It had its own kernel, its own `/proc`, its own network stack. When idle, it would have been automatically paused and snapshotted to disk, resuming in under 50ms when you needed it again.
 
 ## Next steps
 

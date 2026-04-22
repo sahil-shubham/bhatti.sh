@@ -7,7 +7,7 @@ description: Sandboxes, thermal states, and the two binaries — the mental mode
 
 A sandbox is a [Firecracker](https://firecracker-microvm.github.io/) microVM. Not a container — a real virtual machine with its own Linux kernel, its own filesystem, and its own network stack. Process isolation is hardware-enforced by KVM, not namespace-based.
 
-Sandboxes are created in seconds and destroyed instantly. When idle, they're automatically paused — their entire memory state is snapshotted to disk — and resumed in under 3ms when needed.
+Sandboxes are created in seconds and destroyed instantly. When idle, they're automatically paused — their entire memory state is snapshotted to disk — and resumed in under 50ms when needed. Warm VMs (vCPUs paused, memory still allocated) resume in ~400µs.
 
 ## The two binaries
 

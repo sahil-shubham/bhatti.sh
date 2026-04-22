@@ -92,6 +92,28 @@ curl -X DELETE http://localhost:8080/sandboxes/dev \
 
 Destroy stops the VM, deletes all associated files (rootfs copy, snapshots, config drive), releases the IP address, and removes the TAP device. Attached volumes are detached but not deleted.
 
+## Named Snapshots
+
+In addition to the automatic thermal snapshots, you can create named snapshots that capture the complete state of a sandbox — memory, CPU registers, disk, and running processes. Named snapshots can be used to spawn new sandboxes.
+
+```bash
+# Create a named snapshot
+bhatti snapshot create dev --name before-experiment
+
+# List all named snapshots
+bhatti snapshot list
+
+# Create a new sandbox from a snapshot
+bhatti snapshot resume before-experiment
+
+# Delete a snapshot
+bhatti snapshot delete before-experiment
+```
+
+Unlike thermal snapshots (which are managed automatically), named snapshots are user-initiated and persist until explicitly deleted. The restored sandbox is a new instance with all state from the snapshot.
+
+For all snapshot commands, see [CLI Reference: Resources](/docs/reference/cli/resources/).
+
 ## List
 
 ```bash

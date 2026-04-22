@@ -20,7 +20,7 @@ bhatti create --name agent --init "hermes gateway" --keep-hot
 |------|---------|-------------|
 | `--name` | auto-generated | Sandbox name |
 | `--cpus` | 1 | Number of vCPUs |
-| `--memory` | 0 (server default: 2048) | Memory in MB |
+| `--memory` | 0 (server default: 512) | Memory in MB |
 | `--disk-size` | 0 (image size) | Rootfs disk size in MB |
 | `--env` | — | Environment variables (`K=V,K=V`) |
 | `--init` | — | Init script (runs as attachable TTY session) |
