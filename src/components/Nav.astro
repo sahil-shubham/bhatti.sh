@@ -6,9 +6,16 @@ const links = [
 
 let buildTimeStars: number | null = null;
 try {
-    const res = await fetch('https://api.github.com/repos/sahil-shubham/bhatti');
-    const data = await res.json();
-    buildTimeStars = data.stargazers_count ?? null;
+    const res = await fetch('https://api.github.com/repos/sahil-shubham/bhatti', {
+        headers: { 'User-Agent': 'bhatti-sh-site' },
+        signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+        const data = await res.json();
+        if (typeof data.stargazers_count === 'number') {
+            buildTimeStars = data.stargazers_count;
+        }
+    }
 } catch {}
 ---
 
@@ -40,7 +47,7 @@ try {
             <a
                 href={link.href}
                 {...(link.external ? { target: "_blank", rel: "noopener" } : {})}
-            >{link.label}</a>
+            >{link.label}{link.id === 'gh-link' && <span class:list={['gh-stars', { loaded: buildTimeStars != null }]}>{buildTimeStars != null ? `★ ${buildTimeStars}` : ''}</span>}</a>
         ))}
         <a href="#get-started" class="btn btn-amber" style="width: 100%; margin-top: 8px;">Get Started</a>
     </div>
@@ -191,6 +198,23 @@ try {
             menu?.classList.remove('open');
         });
     });
+
+    // Fetch stars client-side if build-time fetch failed
+    const starsEls = document.querySelectorAll('.gh-stars');
+    const anyLoaded = Array.from(starsEls).some(el => el.classList.contains('loaded'));
+    if (!anyLoaded) {
+        fetch('https://api.github.com/repos/sahil-shubham/bhatti')
+            .then(r => r.json())
+            .then(data => {
+                if (typeof data.stargazers_count === 'number') {
+                    starsEls.forEach(el => {
+                        el.textContent = `\u2605 ${data.stargazers_count}`;
+                        el.classList.add('loaded');
+                    });
+                }
+            })
+            .catch(() => {});
+    }
 
     // Smooth scroll for anchor links
     document.querySelectorAll('a[href^="#"]').forEach(anchor => {
