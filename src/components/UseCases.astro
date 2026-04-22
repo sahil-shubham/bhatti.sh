@@ -1,66 +1,66 @@
 ---
 const useCases = [
     {
-        title: "AI Coding Agents",
-        description: "Give LLMs a real, stateful environment to execute code, install packages, and run tests — with full VM isolation between tenants.",
-        code: `<span class="c"># REST API — what your agent calls</span>
+        title: "Build on it",
+        description: "REST API with multi-tenant auth, rate limiting, and network isolation. Create machines programmatically, run work, publish URLs — the compute layer for your platform.",
+        code: `<span class="c"># Create a machine from a custom image</span>
 $ curl -X POST /sandboxes \\
-    -d '{"name":"agent","cpus":2}'
+    -H "Authorization: Bearer bht_..." \\
+    -d '{"name":"task-42","image":"my-stack"}'
 
-<span class="c"># Streaming exec (NDJSON)</span>
-$ curl -N \\
-    -H "Accept: application/x-ndjson" \\
-    -d '{"cmd":["npm","test"]}' \\
-    /sandboxes/\$ID/exec
+<span class="c"># Run a command, stream output</span>
+$ curl -N -H "Accept: application/x-ndjson" \\
+    -d '{"cmd":["mix","test"]}' \\
+    /sandboxes/task-42/exec
 
-<span class="c"># Atomic file writes</span>
-$ curl -X PUT \\
-    /sandboxes/\$ID/files?path=/app.js \\
-    --data-binary @app.js
-
-<span class="c"># Truncated reads (offset/limit)</span>
-$ curl /sandboxes/\$ID/files \\
-    ?path=/app.log\\&limit=100`
+<span class="c"># Publish a port to the internet</span>
+$ bhatti publish task-42 -p 4000 -a dashboard
+<span class="c">→ https://dashboard.bhatti.sh</span>`
     },
     {
-        title: "Disposable Dev Environments",
-        description: "Spin up isolated Linux VMs with Node 22, git, and common tools pre-installed. Snapshot and resume across sessions.",
-        code: `<span class="c"># Shell with session persistence</span>
-$ bhatti create --name project \\
-    --cpus 2 --memory 1024
+        title: "Freeze and resume anything",
+        description: "Snapshot captures running processes, memory, TCP connections — not just files. Restore brings the machine back alive exactly where it left off.",
+        code: `<span class="c"># Server running, counter at 2</span>
+$ bhatti exec dev -- curl -s localhost:3000
+{"visits":2}
 
-$ bhatti shell project
-lohar@project:~$ npm install
-lohar@project:~$ npm run dev
-<span class="c"># Ctrl+\\ to detach — keeps running</span>
+<span class="c"># Snapshot everything</span>
+$ bhatti snapshot create dev --name checkpoint
+✓ Saved in 2.0s
 
-<span class="c"># Reconnect later, scrollback replayed</span>
-$ bhatti shell project`
+<span class="c"># Break it, restore it</span>
+$ bhatti exec dev -- pkill -f node
+$ bhatti snapshot resume checkpoint --name dev
+✓ Restored in 510ms
+
+$ bhatti exec dev -- curl -s localhost:3000
+{"visits":3}  <span class="c"># process alive, state intact</span>`
     },
     {
-        title: "Multi-Tenant Sandboxing",
-        description: "Each user gets isolated API keys, network segments, resource caps, and rate limits. VMs from different users cannot communicate.",
-        code: `<span class="c"># Per-user isolation at every layer</span>
-$ sudo bhatti user create --name alice \\
-    --max-sandboxes 5
+        title: "Your images. Your fleet.",
+        description: "Install your stack once, save as an image, stamp out machines from it. Idle ones sleep automatically — run 50 machines on hardware that fits 10.",
+        code: `<span class="c"># Build a custom image</span>
+$ bhatti create --name build --image minimal
+$ bhatti exec build -- apt-get install -y nodejs
+$ bhatti image save build --name node-app
 
-$ sudo bhatti user create --name bob \\
-    --max-sandboxes 10 \\
-    --max-cpus 4 --max-memory 4096
+<span class="c"># Stamp out machines from it</span>
+$ bhatti create --name worker-1 --image node-app
+$ bhatti create --name worker-2 --image node-app
 
-<span class="c"># Each user gets:</span>
-<span class="c"># - Dedicated bridge + /24 subnet</span>
-<span class="c"># - Scoped API key (SHA-256 auth)</span>
-<span class="c"># - Per-user rate limits</span>
-<span class="c"># - Encrypted secrets (age)</span>`
+$ bhatti list
+<span class="c">NAME       THERMAL   MEMORY    UPTIME</span>
+worker-1   hot       1024MB    2m
+worker-2   hot       1024MB    1m
+build      cold        —       1h`
     },
 ];
 ---
 
 <section id="use-cases">
     <div class="container">
-        <span class="system-label">SYS.APPLICATIONS</span>
-        <h2 class="section-heading mb-64">Built for</h2>
+        <span class="system-label">CAPABILITIES</span>
+        <h2 class="section-heading mb-64">What you can do with it</h2>
 
         <div class="use-case-grid">
             {useCases.map(uc => (

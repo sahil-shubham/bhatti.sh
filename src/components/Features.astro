@@ -3,17 +3,17 @@ const facts = [
     {
         number: "01",
         title: "Real VMs. Not containers.",
-        description: "Every sandbox runs its own Linux kernel in a Firecracker microVM. Process isolation, filesystem isolation, network isolation. Not a namespace trick — a separate machine."
+        description: "Every machine runs its own Linux kernel. Separate filesystem, separate network, separate process space. Not a namespace trick — a separate computer."
     },
     {
         number: "02",
-        title: "Memory snapshots. Not just filesystem.",
-        description: "When bhatti snapshots a VM, it captures everything: running processes, open file descriptors, TCP connections, in-memory state. Resume picks up exactly where it left off."
+        title: "Snapshot everything. Not just files.",
+        description: "When bhatti snapshots a machine, it captures everything: running processes, open file descriptors, TCP connections, in-memory state. Resume picks up exactly where it left off."
     },
     {
         number: "03",
-        title: "Three thermal states. Invisible to you.",
-        description: "Idle 30 seconds → warm (vCPUs paused, ~400µs resume). Idle 30 minutes → cold (snapshotted to disk, memory freed, ~50ms resume). Any API request transparently wakes it."
+        title: "Idle machines cost nothing.",
+        description: "Idle machines pause their CPUs automatically. Left idle longer, they snapshot to disk and free all memory. Any request wakes them transparently — you never manage this."
     }
 ];
 
@@ -21,10 +21,10 @@ const benchmarks = [
     { op: "Run a command", p50: "1.22ms", p95: "1.66ms", p99: "1.79ms" },
     { op: "Read a file (1KB)", p50: "583µs", p95: "757µs", p99: "821µs" },
     { op: "Write a file (1KB)", p50: "1.06ms", p95: "1.25ms", p99: "1.48ms" },
-    { op: "Command on paused sandbox", p50: "2.08ms", p95: "5.85ms", p99: "5.85ms" },
-    { op: "Command on cold sandbox", p50: "40.6ms", p95: "46.3ms", p99: "46.3ms" },
+    { op: "Command on paused machine", p50: "2.08ms", p95: "5.85ms", p99: "5.85ms" },
+    { op: "Command on cold machine", p50: "40.6ms", p95: "46.3ms", p99: "46.3ms" },
     { op: "10 commands at once", p50: "11.4ms", p95: "18.6ms", p99: "18.6ms" },
-    { op: "Create a sandbox", p50: "1.44s", p95: "1.45s", p99: "1.45s" },
+    { op: "Create a machine", p50: "1.44s", p95: "1.45s", p99: "1.45s" },
     { op: "Diff snapshot", p50: "32.0ms", p95: "38.1ms", p99: "38.1ms" },
 ];
 ---
@@ -32,8 +32,8 @@ const benchmarks = [
 <section id="features">
     <div class="container grid-2">
         <div>
-            <span class="system-label">CORE.PRIMITIVES</span>
-            <h2 class="section-heading mb-64">Isolation without the overhead.</h2>
+            <span class="system-label">CORE</span>
+            <h2 class="section-heading mb-64">Real machines. Zero waste.</h2>
 
             <div class="facts-list">
                 {facts.map(fact => (
