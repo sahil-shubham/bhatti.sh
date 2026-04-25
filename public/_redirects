@@ -2,5 +2,7 @@
 # curl -fsSL bhatti.sh/install | bash  →  fetches the install script from GitHub
 /install  https://raw.githubusercontent.com/sahil-shubham/bhatti/main/scripts/install.sh  302
 /install.sh  https://raw.githubusercontent.com/sahil-shubham/bhatti/main/scripts/install.sh  302
+/uninstall  https://raw.githubusercontent.com/sahil-shubham/bhatti/main/scripts/uninstall.sh  302
+/uninstall.sh  https://raw.githubusercontent.com/sahil-shubham/bhatti/main/scripts/uninstall.sh  302
 /docs  /docs/quickstart  302
 /docs/  /docs/quickstart/  302

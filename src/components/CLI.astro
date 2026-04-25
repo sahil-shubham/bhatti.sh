@@ -1,0 +1,195 @@
+---
+const commands = [
+    { cmd: "create", args: "<name>", flags: "[--cpus N] [--memory MB] [--image NAME] [--init CMD] [--env K=V] [--keep-hot]", desc: "Create a new machine" },
+    { cmd: "destroy", args: "<name>", flags: "[-y]", desc: "Destroy a machine" },
+    { cmd: "exec", args: "<name> -- <cmd>", flags: "[--timeout S]", desc: "Run a command" },
+    { cmd: "shell", args: "<name>", flags: "", desc: "Interactive terminal (Ctrl+\\ to detach)" },
+    { cmd: "list", args: "", flags: "", desc: "List your machines" },
+    { cmd: "ps", args: "<name>", flags: "", desc: "List processes in a machine" },
+    { cmd: "start", args: "<name>", flags: "", desc: "Resume a stopped machine" },
+    { cmd: "stop", args: "<name>", flags: "", desc: "Snapshot and stop a machine" },
+    { cmd: "edit", args: "<name>", flags: "[--keep-hot] [--allow-cold]", desc: "Update machine settings" },
+    { divider: "Files & Secrets" },
+    { cmd: "file read", args: "<name> <path>", flags: "[--offset N] [--limit N]", desc: "Read a file" },
+    { cmd: "file write", args: "<name> <path>", flags: "< file", desc: "Write a file (atomic)" },
+    { cmd: "file ls", args: "<name> <path>", flags: "", desc: "List directory" },
+    { cmd: "secret set", args: "<key> <value>", flags: "", desc: "Store an encrypted secret" },
+    { cmd: "secret list", args: "", flags: "", desc: "List secret names" },
+    { cmd: "secret delete", args: "<key>", flags: "", desc: "Delete a secret" },
+    { divider: "Images & Snapshots" },
+    { cmd: "image list", args: "", flags: "", desc: "List available images" },
+    { cmd: "image pull", args: "<ref>", flags: "", desc: "Pull an OCI/Docker image from a public registry" },
+    { cmd: "image import", args: "<docker-ref>", flags: "", desc: "Import a local Docker image as a rootfs" },
+    { cmd: "image save", args: "<name>", flags: "--name <image>", desc: "Save a running machine as a reusable image" },
+    { cmd: "image delete", args: "<name>", flags: "", desc: "Delete an image" },
+    { cmd: "snapshot create", args: "<name>", flags: "--name <snap>", desc: "Checkpoint a running machine" },
+    { cmd: "snapshot resume", args: "<snap>", flags: "--name <name>", desc: "Resume from a snapshot" },
+    { cmd: "snapshot list", args: "", flags: "", desc: "List snapshots" },
+    { cmd: "snapshot delete", args: "<snap>", flags: "", desc: "Delete a snapshot" },
+    { divider: "Networking & Publishing" },
+    { cmd: "publish", args: "<name>", flags: "-p <port> [-a <alias>]", desc: "Publish a port → https://alias.bhatti.sh" },
+    { cmd: "unpublish", args: "<name>", flags: "-p <port>", desc: "Remove a published port" },
+    { cmd: "share", args: "<name>", flags: "", desc: "Generate a web shell URL" },
+    { divider: "Volumes" },
+    { cmd: "volume create", args: "--name <vol>", flags: "--size <MB>", desc: "Create a persistent volume" },
+    { cmd: "volume list", args: "", flags: "", desc: "List volumes" },
+    { cmd: "volume resize", args: "<name>", flags: "--size <MB>", desc: "Resize a volume" },
+    { cmd: "volume delete", args: "<name>", flags: "", desc: "Delete a volume" },
+    { divider: "Admin (server operator)" },
+    { cmd: "serve", args: "", flags: "", desc: "Start the daemon" },
+    { cmd: "setup", args: "", flags: "", desc: "Configure CLI endpoint + API key" },
+    { cmd: "user create", args: "--name <user>", flags: "[--max-sandboxes N] [--max-cpus N] [--max-memory MB]", desc: "Create a user (API key shown once)" },
+    { cmd: "user list", args: "", flags: "", desc: "List users" },
+    { cmd: "user rotate-key", args: "<user>", flags: "", desc: "Rotate a user's API key" },
+    { cmd: "admin status", args: "", flags: "", desc: "System overview" },
+    { cmd: "admin events", args: "", flags: "[--type T] [--since 24h]", desc: "Query event log" },
+    { cmd: "admin metrics", args: "", flags: "[--since 1h]", desc: "Query metrics" },
+    { cmd: "update", args: "", flags: "", desc: "Update bhatti to the latest version" },
+];
+---
+
+<section id="cli">
+    <div class="container">
+        <span class="system-label">CLI</span>
+        <h2 class="section-heading mb-16">Every command</h2>
+        <p class="section-sub mb-48">Single binary. <code class="inline-code">bhatti serve</code> starts the daemon, everything else talks to its API.</p>
+
+        <div class="cli-table">
+            {commands.map(entry => (
+                'divider' in entry ? (
+                    <div class="cli-divider">{entry.divider}</div>
+                ) : (
+                    <div class="cli-row">
+                        <div class="cli-cmd">
+                            <span class="cmd-name">bhatti {entry.cmd}</span>
+                            {entry.args && <span class="cmd-args">{entry.args}</span>}
+                            {entry.flags && <span class="cmd-flags">{entry.flags}</span>}
+                        </div>
+                        <div class="cli-desc">{entry.desc}</div>
+                    </div>
+                )
+            ))}
+        </div>
+
+        <p class="cli-footer">All commands support <code class="inline-code">--json</code> for scripting and <code class="inline-code">--timing</code> for performance debugging.</p>
+    </div>
+</section>
+
+<style>
+    .section-heading {
+        font-size: 2.5rem;
+    }
+
+    .section-sub {
+        color: var(--zinc-400);
+        font-size: 1rem;
+    }
+
+    .mb-16 { margin-bottom: 16px; }
+    .mb-48 { margin-bottom: 48px; }
+
+    .inline-code {
+        font-family: var(--font-mono);
+        font-size: 0.875em;
+        background: var(--zinc-900);
+        border: 1px solid var(--zinc-800);
+        border-radius: 3px;
+        padding: 2px 6px;
+        color: var(--zinc-300);
+    }
+
+    .cli-table {
+        border: 1px solid var(--zinc-800);
+        border-radius: var(--border-radius);
+        background: var(--zinc-900);
+        overflow: hidden;
+    }
+
+    .cli-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 24px;
+        align-items: baseline;
+        padding: 10px 20px;
+        border-bottom: 1px solid var(--zinc-800);
+    }
+
+    .cli-row:last-child {
+        border-bottom: none;
+    }
+
+    .cli-divider {
+        padding: 8px 20px;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        color: var(--amber-500);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        background: rgba(249, 115, 22, 0.03);
+        border-bottom: 1px solid var(--zinc-800);
+    }
+
+    .cli-divider + .cli-row:last-child,
+    .cli-row:has(+ .cli-divider) {
+        border-bottom: none;
+    }
+
+    .cli-cmd {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: baseline;
+    }
+
+    .cmd-name {
+        color: var(--zinc-50);
+        font-weight: 500;
+    }
+
+    .cmd-args {
+        color: var(--zinc-300);
+    }
+
+    .cmd-flags {
+        color: var(--zinc-500);
+    }
+
+    .cli-desc {
+        font-size: 0.8125rem;
+        color: var(--zinc-400);
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .cli-footer {
+        margin-top: 20px;
+        font-size: 0.8125rem;
+        color: var(--zinc-500);
+    }
+
+    @media (max-width: 768px) {
+        .section-heading { font-size: 1.75rem; }
+
+        .cli-row {
+            grid-template-columns: 1fr;
+            gap: 4px;
+            padding: 8px 14px;
+        }
+
+        .cli-desc {
+            text-align: left;
+            font-size: 0.75rem;
+        }
+
+        .cli-cmd {
+            font-size: 0.75rem;
+        }
+
+        .cli-divider {
+            padding: 6px 14px;
+            font-size: 0.625rem;
+        }
+    }
+</style>

@@ -20,26 +20,42 @@ Tested on: Raspberry Pi 5, Hetzner AX-series, any x86_64/aarch64 with KVM.
 ## Install
 
 ```bash
-curl -fsSL bhatti.sh/install | bash
+curl -fsSL bhatti.sh/install | sudo bash
 ```
 
-On Linux, the installer prompts for CLI-only or full server install. Choose server.
+The installer prompts for a rootfs tier:
 
-## Configure
+| Tier | What's in it | Size |
+|------|-------------|------|
+| `minimal` | Bare Ubuntu 24.04 | ~200MB |
+| `browser` | + Chromium, Playwright, Node 22 | ~600MB |
+| `docker` | + Docker Engine | ~550MB |
+| `computer` | + Full desktop: XFCE, KasmVNC, Chromium | ~1.5GB |
 
-Create `/var/lib/bhatti/config.yaml`:
+It downloads all components (Firecracker, kernel, rootfs, bhatti, lohar),
+installs the systemd service, and offers to start it:
 
-```yaml
-listen: ":8080"
-data_dir: /var/lib/bhatti
+```
+==> Installing bhatti v1.7.3 (server, minimal tier)
+  ✓ Firecracker 1.14.0 + jailer
+  ✓ bhatti v1.7.3 (2.1s)
+  ✓ lohar (4.1M, 0.8s)
+  ✓ kernel (8.2M, 1.2s)
+  ✓ rootfs minimal (186M, 6.3s)
+
+  Admin API key: bht_abc123...
+  Start bhatti now? [Y/n]: y
+  ✓ bhatti service started
 ```
 
-See [Configuration Reference](/docs/reference/config/) for all options.
-
-## Start the server
+You can also install non-interactively with flags:
 
 ```bash
-sudo bhatti serve
+# Specific tier
+curl -fsSL bhatti.sh/install | sudo bash -s -- --tier browser
+
+# All tiers at once
+curl -fsSL bhatti.sh/install | sudo bash -s -- --tier all
 ```
 
 ## Create a user
@@ -61,28 +77,31 @@ bhatti exec test -- echo "it works"
 bhatti destroy test
 ```
 
-## Run as a service
+## Updating
 
 ```bash
-sudo tee /etc/systemd/system/bhatti.service << 'EOF'
-[Unit]
-Description=bhatti sandbox orchestrator
-After=network.target
+sudo bhatti update               # updates all components
+sudo bhatti update --tiers all   # also pull additional tiers
+```
 
-[Service]
-ExecStart=/usr/local/bin/bhatti serve
-Restart=always
-RestartSec=5
+Or re-run the install command:
 
-[Install]
-WantedBy=multi-user.target
-EOF
+```bash
+curl -fsSL bhatti.sh/install | sudo bash
+```
 
-sudo systemctl enable --now bhatti
+## Uninstalling
+
+```bash
+# Remove binaries + service, keep data
+curl -fsSL bhatti.sh/uninstall | sudo bash
+
+# Remove everything including data
+curl -fsSL bhatti.sh/uninstall | sudo bash -s -- --purge
 ```
 
 ## Next steps
 
 - [Users & Auth](/docs/managing/users/) — API key rotation, per-user limits
 - [Concepts](/docs/concepts/) — mental model for sandboxes and thermal states
-- [Configuration](/docs/reference/config/) — all server config options
+- [Images](/docs/managing/images/) — custom images, OCI pulls, tier management

@@ -27,20 +27,18 @@
             <div class="code-panel">
                 <pre class="code-panel-pre"><code class="mono"><span class="comment"># 1. Install on your server</span>
 <span class="cmd">$ curl -fsSL bhatti.sh/install | sudo bash</span>
-<span class="comment">==> Installing bhatti v0.5.0 (server, minimal tier)</span>
-<span class="comment">    ✓ Firecracker 1.14.0</span>
-<span class="comment">    ✓ kernel, rootfs, lohar</span>
+<span class="comment">==> Installing bhatti v1.7.3 (server, minimal tier)</span>
+<span class="comment">    ✓ Firecracker 1.14.0 + jailer</span>
+<span class="comment">    ✓ bhatti, lohar, kernel, rootfs</span>
 <span class="comment">    Admin API key: bht_abc123...</span>
+<span class="comment">    Start bhatti now? [Y/n]: y</span>
+<span class="comment">    ✓ bhatti service started</span>
 
-<span class="comment"># 2. Start the daemon</span>
-<span class="cmd">$ sudo bhatti serve</span>
-<span class="comment">[INFO] Listening on :8080</span>
-
-<span class="comment"># 3. Create a user (API key shown once)</span>
+<span class="comment"># 2. Create a user (API key shown once)</span>
 <span class="cmd">$ sudo bhatti user create --name alice</span>
 <span class="comment">bht_live_abc123def456...</span>
 
-<span class="comment"># 4. Install CLI on your laptop</span>
+<span class="comment"># 3. Install CLI on your laptop</span>
 <span class="cmd">$ curl -fsSL bhatti.sh/install | bash</span>
 <span class="cmd">$ bhatti setup</span>
 <span class="comment">API endpoint: https://your-server:8080</span>

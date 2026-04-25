@@ -46,6 +46,12 @@ Press `Ctrl+\` to detach — the shell keeps running. Reconnect with `bhatti she
 bhatti destroy dev
 ```
 
+## Updating
+
+```bash
+bhatti update
+```
+
 ## What just happened
 
 1. `bhatti create` asked the server to boot a Firecracker microVM — a real Linux VM with its own kernel, filesystem, and network interface.
