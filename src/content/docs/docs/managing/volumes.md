@@ -3,7 +3,7 @@ title: Volumes
 description: Persistent ext4 volumes that survive sandbox destruction.
 ---
 
-Volumes are persistent ext4 filesystems that can be attached to sandboxes. They survive sandbox destruction — create a volume, attach it to a sandbox, destroy the sandbox, and the volume's data is still there.
+Persistent storage that survives sandbox destruction. Create a volume, attach it to a sandbox, destroy the sandbox — the data is still there.
 
 ## CLI
 

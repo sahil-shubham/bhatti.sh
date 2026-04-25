@@ -3,7 +3,7 @@ title: Users & Auth
 description: Creating users, API keys, rotation, and per-user resource limits.
 ---
 
-User management operates directly on the local SQLite database. Requires access to the server's data directory.
+User commands require root access on the server.
 
 ## Create a user
 

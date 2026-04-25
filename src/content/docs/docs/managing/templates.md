@@ -3,11 +3,11 @@ title: Templates
 description: Reusable sandbox configurations.
 ---
 
-Templates are saved sandbox configurations — CPU, memory, env vars, init script, volumes, and image. Create a sandbox from a template to skip specifying everything each time.
+Save a sandbox configuration — CPU, memory, env vars, init script, volumes, image — and stamp out sandboxes from it.
 
-## CLI
-
-Templates are managed via the API.
+:::note
+There's no CLI for templates yet. Use the API directly.
+:::
 
 ## API
 

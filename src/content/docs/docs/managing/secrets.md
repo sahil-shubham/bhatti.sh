@@ -3,7 +3,7 @@ title: Secrets
 description: Encrypted secret management with age encryption at rest.
 ---
 
-Secrets are key-value pairs encrypted at rest with [age](https://age-encryption.org/). They're scoped to the authenticated user and automatically injected as environment variables into every command.
+Store sensitive values that are automatically injected as environment variables into every command. Encrypted at rest with [age](https://age-encryption.org/), scoped per user.
 
 ## CLI
 

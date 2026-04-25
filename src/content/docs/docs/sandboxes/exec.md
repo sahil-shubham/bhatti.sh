@@ -64,9 +64,9 @@ Per-request env vars override config drive env vars, which override defaults. Se
 
 ## Behavior
 
-- **Cold sandboxes wake transparently.** If a sandbox is paused or snapshotted, `exec` automatically wakes it before running the command. The caller doesn't need to know about thermal states.
-- **Process groups.** Each exec creates a new process group (`Setpgid: true`). Kill signals target the entire group, so child processes (like those spawned by npm) are cleaned up.
-- **Filesystem sync.** After the command exits, lohar calls `fsync()` before reporting the exit code. This ensures any files the command wrote are on disk — important because the VM might be snapshotted immediately after.
+- **Cold sandboxes wake transparently.** If a sandbox is sleeping, `exec` wakes it automatically. You don't need to know about thermal states.
+- **Process cleanup.** When a command is killed or times out, all its child processes are cleaned up too (e.g., npm's sub-processes).
+- **Writes are durable.** Files written by a command are fsynced to disk before the exit code is returned.
 
 ## Process list
 

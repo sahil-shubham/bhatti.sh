@@ -3,7 +3,7 @@ title: Preview URLs
 description: Publish sandbox ports with public URLs and auto-wake.
 ---
 
-Publish a port inside a sandbox as a public URL. No authentication required to access the URL — useful for sharing previews, demos, or webhook endpoints.
+Give anyone access to a port inside a sandbox — no API key needed. Useful for sharing previews, demos, and webhook endpoints.
 
 ## CLI
 
@@ -39,14 +39,7 @@ curl -X DELETE http://localhost:8080/sandboxes/dev/publish/3000 \
 
 ## Auto-wake
 
-Published URLs work even when the sandbox is cold (snapshotted to disk). When a request arrives:
-
-1. The proxy looks up the alias in an in-memory LRU cache (10K entries)
-2. If the sandbox is cold, `ensureHot()` restores it (~50ms)
-3. Concurrent requests to the same cold sandbox share one wake via `singleflight`
-4. The request is proxied to the port inside the VM
-
-From the visitor's perspective, the first request to a cold sandbox takes ~50ms extra. Subsequent requests are instant.
+Published URLs work even when the sandbox is sleeping. The first request wakes it (~50ms), then everything is instant.
 
 ## Behavior
 

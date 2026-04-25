@@ -3,8 +3,6 @@ title: Create & Destroy
 description: Create, inspect, stop, start, and destroy sandboxes.
 ---
 
-A sandbox is a Firecracker microVM — a real Linux virtual machine with its own kernel, filesystem, and network. Sandboxes are created in seconds, accept commands and file operations, and are destroyed when no longer needed. Between creation and destruction, bhatti manages thermal state automatically.
-
 ## Create
 
 ### CLI
@@ -25,16 +23,6 @@ curl -X POST http://localhost:8080/sandboxes \
 ```
 
 All fields are optional. Defaults: 1 vCPU, 512MB RAM, auto-generated name.
-
-### What happens during create
-
-1. An IP is allocated from the host's subnet pool
-2. A TAP network device is created and attached to the bridge
-3. The base rootfs is copied (CoW when available)
-4. A config drive is built with hostname, env vars, secrets, volumes, and init script
-5. Firecracker boots the VM with the configured kernel, rootfs, and drives
-6. The host polls the guest agent until it responds (~3.5s)
-7. If `init` is set, it runs as an attachable TTY session
 
 ### Options
 
@@ -75,9 +63,9 @@ bhatti stop dev     # snapshot to disk, free memory
 bhatti start dev    # restore from snapshot
 ```
 
-Stop creates a memory snapshot (full or diff). Start restores from the snapshot — all processes, memory state, and network connections resume exactly where they left off.
+Everything inside the VM — processes, memory, network connections — resumes exactly where it left off.
 
-In normal operation, you don't need these — the [thermal manager](/docs/under-the-hood/thermal/) handles transitions automatically.
+In normal operation, you don't need these. Idle sandboxes [pause and resume automatically](/docs/under-the-hood/thermal/).
 
 ## Destroy
 
@@ -90,7 +78,7 @@ curl -X DELETE http://localhost:8080/sandboxes/dev \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Destroy stops the VM, deletes all associated files (rootfs copy, snapshots, config drive), releases the IP address, and removes the TAP device. Attached volumes are detached but not deleted.
+Removes the VM and all its files. Attached volumes are detached but not deleted.
 
 ## List
 
@@ -103,4 +91,4 @@ curl http://localhost:8080/sandboxes \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Lists sandboxes owned by the authenticated user. Includes thermal state, published URLs, and resource usage. Listing does not wake cold sandboxes.
+Lists your sandboxes with their state, resources, and published URLs.

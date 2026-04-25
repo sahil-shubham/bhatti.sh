@@ -75,15 +75,4 @@ curl "http://localhost:8080/sandboxes/dev/files?path=/workspace&ls=true" \
 
 Capped at 10,000 entries. If truncated, a sentinel entry indicates the total count.
 
-## Performance
-
-Measured on Raspberry Pi 5 (ARM64, NVMe):
-
-| Operation | p50 | p95 |
-|-----------|-----|-----|
-| 1KB file read | 472µs | 826µs |
-| 1KB file write | 809µs | 1.1ms |
-| 5 parallel reads | 1.9ms | 2.3ms |
-| Truncated read (100 lines from 10K-line file) | 4.5x faster than full read | — |
-
 For all parameters, see the [API Reference](/docs/reference/api/).

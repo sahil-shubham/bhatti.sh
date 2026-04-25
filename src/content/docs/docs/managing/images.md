@@ -1,9 +1,25 @@
 ---
-title: Images
-description: Rootfs images from OCI registries, Docker, or sandbox snapshots.
+title: Images & Tiers
+description: Built-in tiers, OCI pulls, Docker imports, and saving sandboxes as images.
 ---
 
-Images are rootfs filesystems used as the base for new sandboxes. bhatti ships with a minimal Ubuntu 24.04 image. You can pull additional images from OCI registries, import from Docker, or save a sandbox's filesystem as a reusable image.
+bhatti ships with pre-built Ubuntu 24.04 images (tiers). You can also pull from OCI registries, import from Docker, or save a sandbox's filesystem as a reusable image.
+
+## Built-in tiers
+
+| Tier | What's in it | Size |
+|------|-------------|------|
+| `minimal` | Bare Ubuntu + curl + fuse3 | ~200MB |
+| `browser` | + Chromium, Playwright, Node 22 | ~600MB |
+| `docker` | + Docker Engine | ~550MB |
+| `computer` | + Full desktop: XFCE, KasmVNC, Chromium | ~1.5GB |
+
+```bash
+bhatti create --name scraper --image browser
+bhatti create --name ci --image docker
+```
+
+Install additional tiers with `sudo bhatti update --tiers all`. The server auto-discovers tiers from `/var/lib/bhatti/images/`.
 
 ## Available images
 
