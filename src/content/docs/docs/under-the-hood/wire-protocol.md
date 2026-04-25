@@ -3,7 +3,9 @@ title: The Wire Protocol
 description: "Binary framing between host and guest — why not gRPC, why not HTTP, why one TCP connection."
 ---
 
-All communication between the bhatti host and a guest VM happens over a binary framing protocol. The same protocol runs over vsock (cold boot), TCP over TAP (post-snapshot), or Unix sockets (testing). The protocol is engine-independent — the entire agent test suite runs on macOS over `net.Pipe()` without any VM.
+All communication between the bhatti host and a guest VM happens over a binary framing protocol on a single TCP connection (port 1024). The protocol is transport-independent — it runs over TCP in production and Unix sockets in tests. The entire agent test suite (40+ tests) runs on macOS over `net.Pipe()` without any VM.
+
+Why not gRPC or HTTP? The framing layer is ~130 lines of Go. It handles concurrent stdout/stderr multiplexing, binary file transfers, and terminal I/O with zero dependencies. gRPC would add protobuf code generation, a runtime dependency inside the VM, and complexity disproportionate to the protocol's 8 frame types. HTTP would add parsing overhead on every exec — headers, chunked encoding, content negotiation — for a connection that's already authenticated and never leaves the host.
 
 ## Frame Format
 

@@ -3,9 +3,11 @@ title: "Lohar: PID 1 Inside Every VM"
 description: "The guest agent that replaces systemd — boot sequence, PTY sessions, scrollback, and process management."
 ---
 
-Lohar is a single static Go binary that runs as PID 1 — the init process — inside every Firecracker microVM. It replaces systemd, handles all system initialization, and serves as the execution and file operations backend for the host.
+The rootfs is Ubuntu 24.04 with systemd. The conventional approach is to let systemd start as PID 1 and run the agent as a service. Instead, lohar *is* PID 1 — `init=/usr/local/bin/lohar`.
 
-No libc, no initramfs, no dynamic linking. Cross-compiled from macOS with `CGO_ENABLED=0`.
+Why? Determinism. Systemd's boot sequence starts dozens of services, generates machine IDs, manages cgroups, handles device hotplug — none of which matter inside a controlled microVM. Systemd adds 1-2 seconds to boot time and introduces failure modes we don't need. Lohar boots the VM in ~3.5 seconds total, most of which is Firecracker and kernel initialization.
+
+Single static Go binary. No libc, no initramfs, no dynamic linking. Cross-compiled from macOS with `CGO_ENABLED=0`.
 
 ## Boot Sequence
 
@@ -15,7 +17,7 @@ The kernel boots with `init=/usr/local/bin/lohar`. Lohar is the first and only u
 2. **Bring up loopback** — raw ioctl: `SIOCGIFFLAGS` → set `IFF_UP` → `SIOCSIFFLAGS`.
 3. **Load config drive** (`/dev/vdb`) — 1MB ext4 image with hostname, token, env vars, files, volumes, DNS, init script.
 4. **Apply configuration** — set hostname, write DNS resolvers, decode and write config files (chowned to uid 1000), mount volumes.
-5. **Start listeners** — vsock *and* TCP on ports 1024 (control) and 1025 (forward). Both transports are needed because vsock breaks after snapshot/restore.
+5. **Start listeners** — TCP on ports 1024 (control) and 1025 (forward).
 6. **Run init script** — if configured, starts as an attachable TTY session with ID `"init"`.
 7. **Block forever** — PID 1 must never exit.
 

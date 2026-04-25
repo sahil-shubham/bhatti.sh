@@ -1,52 +1,72 @@
 ---
 title: "Networking: Bridges, TAP, and kernel ip="
-description: "Per-user bridges, IP allocation, TAP lifecycle, and how the guest network is up before PID 1 runs."
+description: "Per-user bridges, L2 isolation, TAP lifecycle, and how the guest network is up before PID 1 runs."
 ---
 
-Every sandbox gets its own network interface, IP address, and internet access through a shared bridge on the host.
+Every sandbox gets its own TAP device, IP address, and internet access. Users are isolated at L2 — VMs belonging to different users are on different bridges and cannot see each other's traffic.
 
-## How it works
+## Per-user bridges
+
+Each user gets their own Linux bridge and /24 subnet, allocated by `subnetFromIndex()` based on the user's index in the database:
 
 ```
-Internet ◄──NAT──── brbhatti0 (bridge, 192.168.137.1/24)
-                         │
-                    ┌────┴────┬────────┐
-                    tap0001   tap0002  tap0003
-                    │         │        │
-                    VM1       VM2      VM3
-                    .137.2    .137.3   .137.4
+User 1 (alice)                          User 2 (bob)
+Internet ◄──NAT── brbhatti1            Internet ◄──NAT── brbhatti2
+                  192.168.128.1/24                       192.168.129.1/24
+                       │                                      │
+                  ┌────┴────┐                            ┌────┴────┐
+                  tap0001  tap0002                       tap0003  tap0004
+                  │        │                             │        │
+                  VM-a1    VM-a2                         VM-b1    VM-b2
+                  .128.2   .128.3                        .129.2   .129.3
 ```
 
-All VMs share one bridge (`brbhatti0`) and one iptables masquerade rule. VMs can reach the internet and each other. The bridge is created automatically on server startup.
+Alice's VMs can talk to each other (same bridge). They cannot reach Bob's VMs — different bridges, different subnets, iptables rules block cross-bridge forwarding.
 
-### IP allocation
+Each bridge gets:
+- One masquerade rule (NAT for internet access)
+- FORWARD rules allowing traffic within the bridge
+- A default DROP on cross-bridge traffic
 
-253 addresses available in `192.168.137.0/24` (`.2` through `.254`). Allocated sequentially, released on sandbox destroy. This limits a single host to 253 concurrent VMs — memory is the real bottleneck long before you hit this.
+Bridges are created on first sandbox for a user, destroyed when the user's last sandbox is destroyed.
 
-### Guest configuration
+## Why per-user bridges
 
-The guest IP is configured via the kernel `ip=` command-line parameter at boot. The network is up before lohar starts as PID 1 — no DHCP, no race conditions. DNS resolvers are injected via the config drive.
+The original design used a single shared bridge (`brbhatti0`). All VMs could see each other at L2. This was fine for single-user setups but broke the multi-tenant isolation model — VM A (alice) could ARP-scan and reach VM B (bob) on the same subnet.
 
-## Reverse proxy
+Per-user bridges solve this at the network layer. Even if a VM is compromised, it can only see its owner's other VMs. The isolation is enforced by the kernel's bridge forwarding, not by application-level rules.
 
-Two proxy paths exist for reaching services running inside sandboxes:
+## TAP lifecycle
 
-### Authenticated proxy (API users)
+TAP devices are created during `Create()` and destroyed during `Destroy()`.
 
+They are **not** destroyed during `Stop()` (snapshot to disk). The snapshot contains virtio-net state that references the TAP device. Destroying and recreating it would break networking after restore — the guest kernel would have a stale device reference.
+
+Orphaned TAPs from crashes (server killed mid-operation) are cleaned up on engine startup by scanning for TAP devices matching the naming pattern that don't correspond to any known sandbox.
+
+## Guest configuration: kernel ip=
+
+The guest IP is configured via the kernel `ip=` command-line parameter at boot:
+
+```
+ip=192.168.128.2::192.168.128.1:255.255.255.0::eth0:off
+```
+
+This is processed during early kernel boot, before any userspace runs. By the time lohar starts as PID 1, the network interface is up, the route is set, and the gateway is reachable.
+
+This solves a chicken-and-egg problem: the host needs to reach the agent to configure it, but the agent can't start without a network. Kernel `ip=` means no DHCP, no agent-side configuration, no race conditions.
+
+DNS resolvers are injected separately via the config drive (a 1MB ext4 image mounted at boot).
+
+## Reaching services inside sandboxes
+
+Two proxy paths:
+
+**Authenticated proxy** — for API users who have a token:
 ```
 GET /sandboxes/:id/proxy/:port/*path
 ```
 
-HTTP requests and WebSocket connections are tunneled through the engine into the sandbox. No direct network access to the VM is required.
+**Public proxy** — for [published preview URLs](/docs/sandboxes/preview-urls/) that work without authentication.
 
-```bash
-# Proxy to port 3000 inside sandbox "dev"
-curl http://localhost:8080/sandboxes/dev/proxy/3000/ \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### Public proxy (published ports)
-
-Published ports get public URLs that work without authentication. See [Preview URLs](/docs/sandboxes/preview-urls/).
-
-For architecture details, see [Firecracker Engine](/docs/under-the-hood/engine/) and [Design Decisions](/docs/under-the-hood/decisions/).
+Both support HTTP and WebSocket. The proxy connects to the VM's IP over the bridge — no port forwarding rules needed, just direct TCP to the guest.

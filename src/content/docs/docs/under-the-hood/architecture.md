@@ -35,16 +35,14 @@ They communicate over TCP using a [binary framing protocol](/docs/under-the-hood
 │  │  │  TCP :1024 (control)   :1025 (forward)         │     │  │
 │  │  │  sessions, files, scrollback, port forwarding   │     │  │
 │  │  └────────────────────────────────────────────────┘     │  │
-│  │  tapXXXX ── brbhatti0 (bridge) ── iptables NAT          │  │
+│  │  tapXXXX ── brbhattiN (per-user bridge) ── NAT     │  │
 │  └─────────────────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────┘
 ```
 
 ## The Engine Interface
 
-The Firecracker engine and Docker engine implement the same Go interface. Docker exists as a development fallback on macOS (no KVM). The Firecracker engine is the production path.
-
-The core interface covers: `Create`, `Destroy`, `Stop` (snapshot), `Start` (restore), `Exec`, `Shell`, `ListeningPorts`, and `Tunnel`. The Firecracker engine extends this with thermal management (`Pause`, `Resume`, `EnsureHot`), file operations, streaming exec, sessions, and state persistence — discovered at runtime via interface assertions.
+The core engine interface covers: `Create`, `Destroy`, `Stop` (snapshot), `Start` (restore), `Exec`, `Shell`, `ListeningPorts`, and `Tunnel`. The Firecracker engine extends this with thermal management (`Pause`, `Resume`, `EnsureHot`), file operations, streaming exec, sessions, and state persistence — discovered at runtime via interface assertions.
 
 ## Sandbox Lifecycle
 

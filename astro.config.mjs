@@ -50,6 +50,10 @@ export default defineConfig({
                     ],
                 },
                 {
+                    label: 'Updating & Uninstalling',
+                    slug: 'docs/updating',
+                },
+                {
                     label: 'Under the Hood',
                     items: [
                         { label: 'Architecture Overview', slug: 'docs/under-the-hood/architecture' },
@@ -85,7 +89,8 @@ export default defineConfig({
                     collapsed: true,
                     items: [
                         { label: 'Testing', slug: 'docs/contributing/testing' },
-                        { label: 'Kernel', slug: 'docs/contributing/kernel' },
+                        { label: 'Building the Kernel', slug: 'docs/contributing/kernel' },
+                        { label: 'Adding a Tier', slug: 'docs/contributing/adding-a-tier' },
                     ],
                 },
             ],
