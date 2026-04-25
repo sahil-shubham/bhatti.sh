@@ -5,7 +5,7 @@ description: System diagram, component map, and data flow.
 
 bhatti has two binaries. **bhatti** runs on the host — it's the daemon, the CLI, the HTTP server, the thermal manager, and the engine that talks to Firecracker. **lohar** runs inside every microVM as PID 1 — it handles exec, file operations, PTY sessions, and port forwarding.
 
-They communicate over TCP using a [binary framing protocol](/docs/reference/wire-protocol/).
+They communicate over TCP using a [binary framing protocol](/docs/under-the-hood/wire-protocol/).
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -50,7 +50,7 @@ The core interface covers: `Create`, `Destroy`, `Stop` (snapshot), `Start` (rest
 
 From the API consumer's perspective, there are two operations: create and destroy. Everything between is bhatti's job.
 
-Behind the API, each VM moves through three [thermal states](/docs/sandboxes/thermal/):
+Behind the API, each VM moves through three [thermal states](/docs/under-the-hood/thermal/):
 
 ```
 Hot ◄──~400µs──► Warm ◄──~50ms──► Cold

@@ -31,14 +31,12 @@ export default defineConfig({
                 {
                     label: 'Sandboxes',
                     items: [
-                        { label: 'Lifecycle', slug: 'docs/sandboxes/lifecycle' },
-                        { label: 'Running Commands', slug: 'docs/sandboxes/exec' },
+                        { label: 'Create & Destroy', slug: 'docs/sandboxes/lifecycle' },
+                        { label: 'Run Commands', slug: 'docs/sandboxes/exec' },
                         { label: 'Interactive Shell', slug: 'docs/sandboxes/shell' },
                         { label: 'Web Shell', slug: 'docs/sandboxes/web-shell' },
                         { label: 'Files', slug: 'docs/sandboxes/files' },
-                        { label: 'Networking', slug: 'docs/sandboxes/networking' },
                         { label: 'Preview URLs', slug: 'docs/sandboxes/preview-urls' },
-                        { label: 'Thermal Management', slug: 'docs/sandboxes/thermal' },
                     ],
                 },
                 {
@@ -47,8 +45,20 @@ export default defineConfig({
                         { label: 'Users & Auth', slug: 'docs/managing/users' },
                         { label: 'Secrets', slug: 'docs/managing/secrets' },
                         { label: 'Volumes', slug: 'docs/managing/volumes' },
+                        { label: 'Images & Tiers', slug: 'docs/managing/images' },
                         { label: 'Templates', slug: 'docs/managing/templates' },
-                        { label: 'Images', slug: 'docs/managing/images' },
+                    ],
+                },
+                {
+                    label: 'Under the Hood',
+                    items: [
+                        { label: 'Architecture Overview', slug: 'docs/under-the-hood/architecture' },
+                        { label: 'Lohar: PID 1 Inside Every VM', slug: 'docs/under-the-hood/lohar' },
+                        { label: 'Thermal States & Snapshots', slug: 'docs/under-the-hood/thermal' },
+                        { label: 'Networking: Bridges, TAP & ip=', slug: 'docs/under-the-hood/networking' },
+                        { label: 'The Wire Protocol', slug: 'docs/under-the-hood/wire-protocol' },
+                        { label: 'Firecracker Engine', slug: 'docs/under-the-hood/engine' },
+                        { label: 'Design Decisions', slug: 'docs/under-the-hood/decisions' },
                     ],
                 },
                 {
@@ -67,17 +77,7 @@ export default defineConfig({
                                 { label: 'Server & Admin', slug: 'docs/reference/cli/admin' },
                             ],
                         },
-                        { label: 'Wire Protocol', slug: 'docs/reference/wire-protocol' },
                         { label: 'Configuration', slug: 'docs/reference/config' },
-                    ],
-                },
-                {
-                    label: 'Architecture',
-                    items: [
-                        { label: 'Overview', slug: 'docs/architecture/overview' },
-                        { label: 'Guest Agent (Lohar)', slug: 'docs/architecture/guest-agent' },
-                        { label: 'Firecracker Engine', slug: 'docs/architecture/engine' },
-                        { label: 'Design Decisions', slug: 'docs/architecture/decisions' },
                     ],
                 },
                 {

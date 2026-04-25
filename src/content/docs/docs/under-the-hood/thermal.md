@@ -1,6 +1,6 @@
 ---
-title: Thermal Management
-description: "Hot, warm, and cold states — automatic resource management for idle sandboxes."
+title: Thermal States & Snapshots
+description: "Hot, warm, and cold — the state machine, diff snapshots, and what went wrong."
 ---
 
 bhatti manages VM resources automatically through three thermal states. From the API's perspective, every sandbox is always "running." Behind the scenes, idle VMs progressively release resources and transparently restore when needed.
@@ -71,4 +71,4 @@ A background goroutine ticks every 10 seconds and evaluates each sandbox:
 
 This two-tier approach avoids opening TCP connections to active sandboxes. With 50 sandboxes, only the idle ones get queried.
 
-For architecture details, see [Firecracker Engine](/docs/architecture/engine/).
+For architecture details, see [Firecracker Engine](/docs/under-the-hood/engine/).

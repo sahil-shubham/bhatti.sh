@@ -13,7 +13,7 @@ Sandboxes are created in seconds and destroyed instantly. When idle, they're aut
 
 **bhatti** runs on the host. It's both the server daemon (`bhatti serve`) and the CLI client (`bhatti create`, `bhatti exec`, etc.). The server manages Firecracker VMs via its HTTP API over a Unix socket.
 
-**lohar** runs inside the VM as PID 1. It's the guest agent — a static binary with zero dependencies (no systemd, no libc, no initramfs). It handles command execution, file operations, PTY sessions, and communicates with the host over a vsock connection using a custom [wire protocol](/docs/reference/wire-protocol/).
+**lohar** runs inside the VM as PID 1. It's the guest agent — a static binary with zero dependencies (no systemd, no libc, no initramfs). It handles command execution, file operations, PTY sessions, and communicates with the host over a vsock connection using a custom [wire protocol](/docs/under-the-hood/wire-protocol/).
 
 The names: *bhatti* (भट्टी) means furnace. *lohar* (लोहार) means blacksmith.
 
@@ -52,4 +52,4 @@ CLI / API client
 └─────────────┘
 ```
 
-For the full picture, see [Architecture Overview](/docs/architecture/overview/).
+For the full picture, see [Architecture Overview](/docs/under-the-hood/architecture/).

@@ -1,6 +1,6 @@
 ---
-title: Networking
-description: Per-user bridges, IP allocation, internet access, and DNS.
+title: "Networking: Bridges, TAP, and kernel ip="
+description: "Per-user bridges, IP allocation, TAP lifecycle, and how the guest network is up before PID 1 runs."
 ---
 
 Every sandbox gets its own network interface, IP address, and internet access through a shared bridge on the host.
@@ -49,4 +49,4 @@ curl http://localhost:8080/sandboxes/dev/proxy/3000/ \
 
 Published ports get public URLs that work without authentication. See [Preview URLs](/docs/sandboxes/preview-urls/).
 
-For architecture details, see [Firecracker Engine](/docs/architecture/engine/) and [Design Decisions](/docs/architecture/decisions/).
+For architecture details, see [Firecracker Engine](/docs/under-the-hood/engine/) and [Design Decisions](/docs/under-the-hood/decisions/).

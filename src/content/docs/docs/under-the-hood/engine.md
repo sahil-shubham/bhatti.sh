@@ -43,7 +43,7 @@ Total: ~50ms. All processes, memory, TCP connections, and file descriptors insid
 
 ### Why TCP after restore
 
-Vsock breaks after snapshot/restore — the guest kernel's vsock state is stale. Connections complete the host-side handshake but never reach the guest agent. This is a known Firecracker limitation. Virtio-net (the virtual NIC) survives cleanly, so lohar listens on both vsock and TCP. Post-restore always uses TCP. See [Design Decisions](/docs/architecture/decisions/) for details.
+Vsock breaks after snapshot/restore — the guest kernel's vsock state is stale. Connections complete the host-side handshake but never reach the guest agent. This is a known Firecracker limitation. Virtio-net (the virtual NIC) survives cleanly, so lohar listens on both vsock and TCP. Post-restore always uses TCP. See [Design Decisions](/docs/under-the-hood/decisions/) for details.
 
 ## Thermal State Machine
 

@@ -1,6 +1,6 @@
 ---
-title: Wire Protocol
-description: Binary framing spec for host↔guest communication over vsock, TCP, or Unix sockets.
+title: The Wire Protocol
+description: "Binary framing between host and guest — why not gRPC, why not HTTP, why one TCP connection."
 ---
 
 All communication between the bhatti host and a guest VM happens over a binary framing protocol. The same protocol runs over vsock (cold boot), TCP over TAP (post-snapshot), or Unix sockets (testing). The protocol is engine-independent — the entire agent test suite runs on macOS over `net.Pipe()` without any VM.

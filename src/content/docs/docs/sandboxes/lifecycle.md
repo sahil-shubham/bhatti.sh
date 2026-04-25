@@ -1,6 +1,6 @@
 ---
-title: Lifecycle
-description: Create, use, and destroy sandboxes.
+title: Create & Destroy
+description: Create, inspect, stop, start, and destroy sandboxes.
 ---
 
 A sandbox is a Firecracker microVM — a real Linux virtual machine with its own kernel, filesystem, and network. Sandboxes are created in seconds, accept commands and file operations, and are destroyed when no longer needed. Between creation and destruction, bhatti manages thermal state automatically.
@@ -77,7 +77,7 @@ bhatti start dev    # restore from snapshot
 
 Stop creates a memory snapshot (full or diff). Start restores from the snapshot — all processes, memory state, and network connections resume exactly where they left off.
 
-In normal operation, you don't need these — the [thermal manager](/docs/sandboxes/thermal/) handles transitions automatically.
+In normal operation, you don't need these — the [thermal manager](/docs/under-the-hood/thermal/) handles transitions automatically.
 
 ## Destroy
 

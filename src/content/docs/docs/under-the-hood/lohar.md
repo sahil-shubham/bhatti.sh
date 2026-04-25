@@ -1,6 +1,6 @@
 ---
-title: Guest Agent (Lohar)
-description: "PID 1 inside every microVM: boot sequence, PTY sessions, scrollback, and process management."
+title: "Lohar: PID 1 Inside Every VM"
+description: "The guest agent that replaces systemd — boot sequence, PTY sessions, scrollback, and process management."
 ---
 
 Lohar is a single static Go binary that runs as PID 1 — the init process — inside every Firecracker microVM. It replaces systemd, handles all system initialization, and serves as the execution and file operations backend for the host.
