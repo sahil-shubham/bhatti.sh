@@ -46,6 +46,7 @@ export default defineConfig({
                         { label: 'Secrets', slug: 'docs/managing/secrets' },
                         { label: 'Volumes', slug: 'docs/managing/volumes' },
                         { label: 'Images & Tiers', slug: 'docs/managing/images' },
+                        { label: 'Custom Domain', slug: 'docs/managing/custom-domain' },
                         { label: 'Templates', slug: 'docs/managing/templates' },
                     ],
                 },
