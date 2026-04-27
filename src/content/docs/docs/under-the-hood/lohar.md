@@ -5,7 +5,7 @@ description: "The guest agent that replaces systemd — boot sequence, PTY sessi
 
 The rootfs is Ubuntu 24.04 with systemd. The conventional approach is to let systemd start as PID 1 and run the agent as a service. Instead, lohar *is* PID 1 — `init=/usr/local/bin/lohar`.
 
-Why? Determinism. Systemd's boot sequence starts dozens of services, generates machine IDs, manages cgroups, handles device hotplug — none of which matter inside a controlled microVM. Systemd adds 1-2 seconds to boot time and introduces failure modes we don't need. Lohar boots the VM in ~3.5 seconds total, most of which is Firecracker and kernel initialization.
+Why? Determinism. Systemd's boot sequence starts dozens of services, generates machine IDs, manages cgroups, handles device hotplug — none of which matter inside a controlled microVM. Systemd adds 1-2 seconds to boot time and introduces failure modes we don't need. Lohar boots the VM in ~270ms total (kernel + init + agent ready).
 
 Single static Go binary. No libc, no initramfs, no dynamic linking. Cross-compiled from macOS with `CGO_ENABLED=0`.
 

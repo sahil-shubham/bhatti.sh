@@ -770,7 +770,7 @@ Accept: application/x-ndjson
         "engine": {
             title: "Firecracker Engine",
             html: `<p>Direct HTTP to Firecracker's Unix socket — no SDK, ~20 lines of helpers instead of 15K lines of Swagger.</p>
-<div class="eg"><div><h4>Diff snapshots</h4><table class="st"><tr><th>Type</th><th>Writes</th><th>512MB VM</th></tr><tr><td>Full (first)</td><td>every page</td><td>~4.4s</td></tr><tr><td>Diff (subsequent)</td><td>dirty pages only</td><td>~52ms</td></tr></table><p><code>track_dirty_pages: true</code>. Fallback to full if base missing.</p></div>
+<div class="eg"><div><h4>Full snapshots</h4><table class="st"><tr><th>Type</th><th>Writes</th><th>512MB VM</th></tr><tr><td>Full</td><td>every page</td><td>~621ms</td></tr></table><p><code>track_dirty_pages: false</code>. Every snapshot is a complete, self-consistent image. Diff snapshots disabled due to dirty page tracking gaps in Firecracker.</p></div>
 <div><h4>Recovery</h4><p><code>recoverVMs()</code> reads SQLite on restart. Handles JSON float64 ↔ SQLite int coercion. Orphaned TAP devices cleaned up before VMs load.</p></div></div>
 <a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/decisions.md" target="_blank">Design decisions →</a>`
         },
