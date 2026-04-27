@@ -18,14 +18,14 @@ const facts = [
 ];
 
 const benchmarks = [
+    { op: "Create a machine", p50: "272ms", p95: "302ms", p99: "302ms" },
     { op: "Run a command", p50: "1.07ms", p95: "1.58ms", p99: "1.63ms" },
     { op: "Read a file (1KB)", p50: "503µs", p95: "675µs", p99: "747µs" },
     { op: "Write a file (1KB)", p50: "1.07ms", p95: "1.22ms", p99: "1.58ms" },
-    { op: "Command on paused machine", p50: "2.14ms", p95: "11.1ms", p99: "11.1ms" },
-    { op: "Command on cold machine", p50: "42.2ms", p95: "44.0ms", p99: "44.0ms" },
     { op: "10 commands at once", p50: "12.0ms", p95: "20.0ms", p99: "20.0ms" },
-    { op: "Create a machine", p50: "272ms", p95: "302ms", p99: "302ms" },
-    { op: "Full snapshot (512MB)", p50: "621ms", p95: "655ms", p99: "655ms" },
+    { op: "Wake a paused machine", p50: "2.14ms", p95: "11.1ms", p99: "11.1ms" },
+    { op: "Wake a cold machine", p50: "42.2ms", p95: "44.0ms", p99: "44.0ms" },
+    { op: "Snapshot to disk (512MB)", p50: "621ms", p95: "655ms", p99: "655ms" },
 ];
 ---
 
