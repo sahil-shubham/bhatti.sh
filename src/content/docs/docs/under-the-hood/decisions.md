@@ -9,7 +9,7 @@ The decisions that shaped the system — the ones worth discussing because they 
 
 Firecracker exposes vsock as the primary host↔guest channel. It works perfectly during normal operation. After snapshot/restore, it breaks — the guest kernel's vsock state is stale, and connections complete the host-side handshake but never reach the guest agent.
 
-Tested with kernel 5.10, 6.1, and Firecracker 1.6.0. SlicerVM (a production Firecracker orchestrator) had the same issue — their suspend/restore was unshipped.
+Tested with kernel 5.10, 6.1, and Firecracker 1.6.0 through 1.14.0. This is a known Firecracker limitation — vsock state doesn't survive snapshot/restore (see Firecracker issue tracker).
 
 **Decision:** Lohar listens on both vsock and TCP on ports 1024/1025. Cold boot uses vsock (slightly faster). After restore, a new `AgentClient` uses TCP over the TAP network. Virtio-net survives snapshot/restore cleanly.
 

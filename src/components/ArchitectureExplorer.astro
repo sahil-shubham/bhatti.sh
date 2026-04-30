@@ -763,7 +763,7 @@ Accept: application/x-ndjson
 <tr><td><span class="hl">Warm</span></td><td>alive</td><td>paused</td><td>allocated</td><td>~400µs</td></tr>
 <tr><td><span class="hl">Cold</span></td><td>dead</td><td>—</td><td>freed</td><td>~50ms</td></tr></table>
 <p>Idle 30s → warm. Idle 30min → cold. <code>ensureHot()</code> before every operation.</p></div>
-<div><h4>The vsock bug</h4><p>Vsock breaks after snapshot/restore — connections complete the host handshake but never reach the guest. Confirmed across kernel 5.10, 6.1, FC 1.6.0. SlicerVM had the same unsolved issue.</p>
+<div><h4>The vsock bug</h4><p>Vsock breaks after snapshot/restore — connections complete the host handshake but never reach the guest. Confirmed across kernel 5.10, 6.1, FC 1.6.0–1.14.0. This is a known Firecracker limitation.</p>
 <p>Fix: TCP over virtio-net post-restore. Lohar listens on both. +0.1ms.</p></div></div>
 <a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/thermal-management.md" target="_blank">Thermal management →</a>`
         },
