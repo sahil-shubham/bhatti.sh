@@ -1,0 +1,45 @@
+---
+title: bhatti snapshot list
+description: List named VM snapshots.
+sidebar:
+  label: snapshot list
+  order: 2
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+List your named VM snapshots.
+
+## Synopsis
+
+<Synopsis>bhatti snapshot list</Synopsis>
+
+## Description
+
+Lists snapshots owned by the authenticated user. Each row includes the snapshot ID, name, source sandbox name, and on-disk size in MB.
+
+## Examples
+
+```bash
+bhatti snapshot list
+```
+
+```text
+ID                   NAME                 SOURCE               SIZE
+snap_a1b2c3d4        pre-experiment       dev                  512MB
+snap_e5f6g7h8        daily                worker               1024MB
+snap_i9j0k1l2        ready                base                 384MB
+```
+
+```bash
+# JSON for scripting
+bhatti snapshot list --json | jq '.[] | select(.source_sandbox == "base")'
+```
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [API: `GET /snapshots`](/docs/reference/api/#list-snapshots)

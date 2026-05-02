@@ -1,0 +1,49 @@
+---
+title: bhatti stop
+description: Snapshot a sandbox to disk and free its memory.
+sidebar:
+  label: stop
+  order: 5
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Snapshot a sandbox to disk and free its memory. The VM keeps its identity, IP, and on-disk state; resume with [`bhatti start`](/docs/reference/cli/sandbox/start/).
+
+## Synopsis
+
+<Synopsis>bhatti stop &lt;sandbox&gt;</Synopsis>
+
+## Description
+
+Pauses the VM, dumps memory + CPU state to disk, then frees the host RAM. The first `stop` on a sandbox is a *full* snapshot (~3-4s for a 1GB VM); subsequent stops are *diff* snapshots that only persist dirty pages (~20-50ms typical).
+
+Stopped sandboxes use zero CPU and zero memory on the host. Their disk footprint includes the rootfs, attached volumes, and the snapshot files (`mem.snap`, `vm.snap`).
+
+In normal operation you don't need this — idle sandboxes pause and resume automatically per the thermal manager. Use `bhatti stop` to control thermal state explicitly when you know a sandbox will be idle for a while and want to free memory immediately.
+
+## Examples
+
+```bash
+bhatti stop dev
+```
+
+```text
+sandbox/dev stopped
+```
+
+```bash
+# Resume later
+bhatti start dev
+```
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti start`](/docs/reference/cli/sandbox/start/) — resume from snapshot
+- [`bhatti snapshot create`](/docs/reference/cli/snapshots/create/) — named snapshot you can resume into a *new* sandbox
+- [Thermal states](/docs/under-the-hood/thermal-states/) — automatic pause/resume
+- [API: `POST /sandboxes/:id/stop`](/docs/reference/api/#stop-a-sandbox)

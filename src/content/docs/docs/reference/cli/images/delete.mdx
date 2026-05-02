@@ -1,0 +1,54 @@
+---
+title: bhatti image delete
+description: Delete an image. Cannot be undone.
+sidebar:
+  label: image delete
+  order: 5
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Delete an image.
+
+## Synopsis
+
+<Synopsis>bhatti image delete &lt;name&gt; [-y]</Synopsis>
+
+## Description
+
+Removes the image record and the underlying ext4 file. **Cannot be undone.**
+
+Sandboxes that were created from this image keep running — they have their own copy-on-write rootfs derived from the image at creation time. They don't reference the original after boot.
+
+By default, `delete` prompts for confirmation. In a non-interactive shell without `-y`, the command refuses and exits `1`.
+
+You cannot delete a system tier image (`minimal`, `browser`, etc.) — those are owned by `user_id=""` and only the operator can remove them by removing the file from `/var/lib/bhatti/images/`.
+
+## Examples
+
+```bash
+bhatti image delete python-3.12
+```
+
+```text
+Delete image "python-3.12"? [y/N]: y
+deleted
+```
+
+```bash
+# Non-interactive
+bhatti image delete python-3.12 -y
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `-y`, `--yes` | `false` | Skip confirmation. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti image list`](/docs/reference/cli/images/list/)
+- [API: `DELETE /images/:name`](/docs/reference/api/#delete-an-image)

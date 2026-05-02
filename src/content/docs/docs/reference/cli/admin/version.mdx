@@ -1,0 +1,74 @@
+---
+title: bhatti version
+description: Print CLI version, server version, and check for updates.
+sidebar:
+  label: version
+  order: 3
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Print CLI and server versions; check for updates.
+
+## Synopsis
+
+<Synopsis>bhatti version</Synopsis>
+
+## Description
+
+Prints:
+
+- **CLI version** — embedded at build time via `-ldflags`. Shows `dev` for unreleased builds.
+- **API endpoint** — currently configured from flags, env, or config.
+- **Server version** — read from the `X-Bhatti-Version` response header on a probe to `GET /sandboxes`. Skipped if unreachable or unauthenticated.
+- **Update notice** — if the CLI's GitHub release check (cached for 1 hour at `~/.bhatti/.latest-version`) finds a newer release, prints it.
+
+The server-version probe also drives the `X-Bhatti-Min-CLI` warning that appears on every command — if your CLI is older than the server's minimum, every command emits a one-line stderr warning.
+
+## Examples
+
+```bash
+bhatti version
+```
+
+```text
+bhatti v1.10.0
+api: https://api.bhatti.sh
+server: v1.10.0
+```
+
+```bash
+# When an update is available
+bhatti version
+```
+
+```text
+bhatti v1.9.0
+api: https://api.bhatti.sh
+server: v1.10.0
+
+Update available: v1.9.0 → v1.10.0 (bhatti update)
+```
+
+```bash
+# Machine-readable
+bhatti version --json
+```
+
+```json
+{
+  "version": "v1.10.0",
+  "api": "https://api.bhatti.sh",
+  "server_version": "v1.10.0",
+  "latest_version": "v1.10.0"
+}
+```
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti update`](/docs/reference/cli/admin/update/) — apply available updates
+- [`bhatti admin status`](/docs/reference/cli/admin/admin-status/) — also prints version info on the server side

@@ -1,0 +1,51 @@
+---
+title: bhatti snapshot delete
+description: Delete a snapshot. Cannot be undone.
+sidebar:
+  label: snapshot delete
+  order: 4
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Delete a named snapshot.
+
+## Synopsis
+
+<Synopsis>bhatti snapshot delete &lt;snapshot-name&gt; [-y]</Synopsis>
+
+## Description
+
+Removes the snapshot record and the on-disk snapshot files (`mem.snap`, `vm.snap`, copied rootfs). **Cannot be undone.**
+
+By default, prompts for confirmation. In a non-interactive shell without `-y`, the command refuses and exits `1`.
+
+Sandboxes that were previously resumed from this snapshot are unaffected — they have their own copy of the state and don't reference the original.
+
+## Examples
+
+```bash
+bhatti snapshot delete pre-experiment
+```
+
+```text
+Delete snapshot "pre-experiment"? [y/N]: y
+deleted
+```
+
+```bash
+# Non-interactive
+bhatti snapshot delete pre-experiment -y
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `-y`, `--yes` | `false` | Skip confirmation. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [API: `DELETE /snapshots/:name`](/docs/reference/api/#delete-a-snapshot)

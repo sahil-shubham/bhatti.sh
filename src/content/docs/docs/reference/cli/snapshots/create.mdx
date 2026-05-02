@@ -1,0 +1,52 @@
+---
+title: bhatti snapshot create
+description: Checkpoint a running sandbox to a named snapshot.
+sidebar:
+  label: snapshot create
+  order: 1
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Checkpoint a running sandbox to a named snapshot.
+
+## Synopsis
+
+<Synopsis>bhatti snapshot create &lt;sandbox&gt; --name &lt;snapshot-name&gt;</Synopsis>
+
+## Description
+
+Captures memory, CPU registers, disk, and running processes from the running sandbox and saves them under `<snapshot-name>`. The source sandbox is briefly paused during the capture (typically a few seconds for a full snapshot, ~50ms for a diff snapshot if a previous one exists), then resumes.
+
+The snapshot is stored on the server in the user's snapshot directory (`/var/lib/bhatti/snapshots/<user>/`). Resume into a new sandbox with [`bhatti snapshot resume`](/docs/reference/cli/snapshots/resume/) at any time.
+
+`--name` is required. Names must match `[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}` — same rules as sandbox names.
+
+## Examples
+
+```bash
+bhatti snapshot create dev --name pre-experiment
+```
+
+```text
+checkpoint "pre-experiment" created (512MB)
+```
+
+```bash
+# Re-running with the same snapshot name overwrites the previous one
+bhatti snapshot create dev --name daily
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--name <string>` | (required) | Snapshot name. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti snapshot resume`](/docs/reference/cli/snapshots/resume/) — create a sandbox from this snapshot
+- [`bhatti stop`](/docs/reference/cli/sandbox/stop/) — pause the original instead of forking
+- [API: `POST /sandboxes/:id/checkpoint`](/docs/reference/api/#create-a-snapshot)

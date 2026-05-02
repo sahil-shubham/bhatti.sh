@@ -1,0 +1,74 @@
+---
+title: bhatti admin status
+description: One-shot system overview — sandboxes, users, host load, recent events.
+sidebar:
+  label: admin status
+  order: 10
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+import ServerOnly from '../../../../../../components/docs/ServerOnly.astro';
+
+# bhatti admin status <ServerOnly />
+
+One-shot system overview.
+
+## Synopsis
+
+<Synopsis>sudo bhatti admin status</Synopsis>
+
+## Description
+
+Reads the latest metrics snapshot and event log from the local SQLite database and prints a compact dashboard:
+
+- **Version + update notice** — current server version, latest GitHub release if newer.
+- **Host stats** — load average, memory in use vs. total.
+- **Sandbox totals** — broken down by thermal state (hot/warm/cold).
+- **User totals** — total users, currently-active users.
+- **API + proxy counters** — total requests, errors, auth failures, cold-wake count.
+- **Per-user breakdown** — sandbox count vs. limit, current running/stopped split.
+- **Recent events** — last ~10 events from the audit log with a one-line summary each.
+
+Reads database state directly; doesn't touch the engine. Safe to run while the daemon is busy.
+
+## Examples
+
+```bash
+sudo bhatti admin status
+```
+
+```text
+Bhatti v1.10.0
+Host: 0.42 load, 12.4 / 32.0 GB memory
+
+Sandboxes  17 total (4 hot, 6 warm, 7 cold)
+Users      8 total, 5 active
+API        184.2K requests, 423 errors, 12 auth failures
+Proxy      47.1K requests, 89 errors, 156 cold wakes
+
+USER             SANDBOXES    STATUS
+alice            3/10         2 running, 1 stopped
+bob              0/5          -
+worker-bot       5/5          5 running
+
+RECENT EVENTS
+  14:22:18  thermal.pause            alice        scraper          idle=180s
+  14:21:45  sandbox.created          bob          test-1           cpus=2 mem=1024 image=minimal
+  14:20:11  proxy.error              -            staging          alias=staging status=502
+  14:18:33  thermal.wake             alice        api              from=cold 47ms
+  ...
+```
+
+```bash
+# Machine-readable
+sudo bhatti admin status --json | jq .gauges.sandboxes_hot
+```
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti admin events`](/docs/reference/cli/admin/admin-events/) — drill into the event log
+- [`bhatti admin metrics`](/docs/reference/cli/admin/admin-metrics/) — time-series view

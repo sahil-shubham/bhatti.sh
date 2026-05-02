@@ -1,0 +1,56 @@
+---
+title: bhatti user rotate-key
+description: Rotate a user's API key. Old key is immediately invalidated.
+sidebar:
+  label: user rotate-key
+  order: 8
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+import ServerOnly from '../../../../../../components/docs/ServerOnly.astro';
+
+# bhatti user rotate-key <ServerOnly />
+
+Rotate a user's API key.
+
+## Synopsis
+
+<Synopsis>sudo bhatti user rotate-key &lt;name&gt;</Synopsis>
+
+## Description
+
+Generates a new API key, stores its SHA-256 hash, and prints the plaintext **once**. The previous key is invalidated server-side immediately — any in-flight requests using the old key fail with `401`.
+
+Use this when:
+- A key may have leaked.
+- A user has lost their key (the original is unrecoverable).
+- You have a key-rotation policy.
+
+The user's existing sandboxes, secrets, volumes, snapshots, and images are all preserved — only the auth token changes.
+
+Records a `user.key_rotated` event in the audit log.
+
+## Examples
+
+```bash
+sudo bhatti user rotate-key alice
+```
+
+```text
+API key rotated for "alice"
+  New key: bht_xyz789...
+
+The old key is immediately invalidated.
+This key will not be shown again. Save it now.
+```
+
+After rotation, give the user the new key. They run `bhatti setup` to update their config.
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti user create`](/docs/reference/cli/admin/user-create/)
+- [`bhatti setup`](/docs/reference/cli/admin/setup/) — what the user runs to install the new key

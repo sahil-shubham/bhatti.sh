@@ -1,0 +1,84 @@
+---
+title: bhatti image import
+description: Import a local Docker image (via docker save) or a raw tarball.
+sidebar:
+  label: image import
+  order: 3
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Import an image from a local Docker daemon, or directly from a tarball without Docker.
+
+## Synopsis
+
+<Synopsis>{`bhatti image import <docker-ref> [--name <string>]
+bhatti image import --tar <path> --name <string>`}</Synopsis>
+
+## Description
+
+Two modes:
+
+**Docker mode** (default). The CLI runs `docker save <ref>` on your machine and streams the resulting tarball to the bhatti server, which converts it to an ext4 rootfs. Requires Docker installed locally. The image must already be in your local Docker daemon — pull it first with `docker pull` if needed.
+
+**Tarball mode** (`--tar`). Skip Docker entirely. The CLI reads the file at `<path>` and streams it to the server. The tarball must be in the format produced by `docker save` (an OCI layout or v1 image manifest). `--name` is required in this mode since there's no ref to derive the name from.
+
+If you don't pass `--name` in Docker mode, a name is derived from the ref the same way as `image pull`: `python:3.12` → `python-3.12`.
+
+For private registries, this is the recommended path — `docker pull` handles authentication on your machine using your existing Docker credentials, then bhatti just receives the bytes:
+
+```bash
+docker pull ghcr.io/org/private:latest
+bhatti image import ghcr.io/org/private:latest
+```
+
+## Examples
+
+```bash
+# Import from local Docker (name derived from ref)
+bhatti image import python:3.12
+```
+
+```bash
+# Private image: pull with Docker first, then import
+docker pull ghcr.io/org/private:latest
+bhatti image import ghcr.io/org/private:latest
+```
+
+```bash
+# Locally-built image
+docker build -t my-env .
+bhatti image import my-env
+```
+
+```bash
+# Custom name override
+bhatti image import python:3.12 --name py312
+```
+
+```bash
+# Raw tarball — no Docker needed
+docker save ubuntu:24.04 -o /tmp/ubuntu.tar
+bhatti image import --tar /tmp/ubuntu.tar --name ubuntu-24
+```
+
+## Failure modes
+
+- **Docker not found**: install Docker, or use `--tar` with a tarball.
+- **Image not in local Docker**: `docker pull <ref>` first, or use `--tar` with a saved tarball.
+- **Server rejects the upload**: image is too large or malformed; check stderr for the server message.
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--name <string>` | derived from ref (Docker mode); required (`--tar` mode) | Image name to register on the server. |
+| `--tar <path>` | — | Skip Docker; stream the given tarball directly. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti image pull`](/docs/reference/cli/images/pull/) — server-side pull from public registries (no Docker needed)
+- [`bhatti image save`](/docs/reference/cli/images/save/) — save a sandbox's filesystem as an image
+- [API: `POST /images/import`](/docs/reference/api/#import-an-image)

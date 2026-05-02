@@ -1,0 +1,62 @@
+---
+title: bhatti snapshot resume
+description: Resume a snapshot into a new sandbox. The original is unaffected.
+sidebar:
+  label: snapshot resume
+  order: 3
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Resume a named snapshot into a new sandbox.
+
+## Synopsis
+
+<Synopsis>bhatti snapshot resume &lt;snapshot-name&gt; [--name &lt;new-sandbox-name&gt;]</Synopsis>
+
+## Description
+
+Creates a brand-new sandbox by restoring the snapshot's memory, CPU, and disk state. Running processes pick up exactly where they left off; open file descriptors are still open; in-memory data structures are intact.
+
+The new sandbox gets a new ID and a new IP. **Persistent volumes are not re-attached** — re-attach them with the same `--volume` semantics if needed.
+
+`--name` is optional. Without it, a name is generated from the snapshot's source sandbox plus a random suffix.
+
+You can resume the same snapshot multiple times — each call produces a fresh sandbox with the same starting state. Useful for fork-and-experiment workflows.
+
+## Examples
+
+```bash
+# Resume into a sandbox with a specific name
+bhatti snapshot resume pre-experiment --name dev-restored
+```
+
+```text
+abc123  dev-restored  192.168.137.42
+```
+
+```bash
+# Auto-generated name (source sandbox + suffix)
+bhatti snapshot resume pre-experiment
+```
+
+```bash
+# Stamp out parallel copies for an A/B test
+bhatti snapshot resume base --name worker-a
+bhatti snapshot resume base --name worker-b
+bhatti snapshot resume base --name worker-c
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--name <string>` | auto-generated | Name for the new sandbox. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti snapshot create`](/docs/reference/cli/snapshots/create/) — make the snapshot
+- [`bhatti snapshot list`](/docs/reference/cli/snapshots/list/) — find snapshot names
+- [API: `POST /snapshots/:name/resume`](/docs/reference/api/#resume-a-snapshot)

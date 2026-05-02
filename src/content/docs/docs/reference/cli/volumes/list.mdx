@@ -1,0 +1,55 @@
+---
+title: bhatti volume list
+description: List persistent volumes you own.
+sidebar:
+  label: volume list
+  order: 2
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+List your persistent volumes.
+
+## Synopsis
+
+<Synopsis>bhatti volume list</Synopsis>
+
+## Description
+
+Lists volumes owned by the authenticated user. Each row includes ID, name, size, and current status.
+
+The default output is compact. Use `--json` to get the full record including current attachments (which sandbox has it mounted, where, and read-only flag).
+
+## Examples
+
+```bash
+bhatti volume list
+```
+
+```text
+ID                   NAME                 SIZE       STATUS
+vol_a1b2c3d4         workspace            5120MB     ready
+vol_e5f6g7h8         data                 20480MB    ready
+```
+
+```bash
+# Find which sandbox has a volume mounted
+bhatti volume list --json | jq '.[] | {name, attachments}'
+```
+
+```json
+{
+  "name": "workspace",
+  "attachments": [
+    {"sandbox_id": "abc123", "mount": "/workspace", "read_only": false}
+  ]
+}
+```
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [API: `GET /volumes`](/docs/reference/api/#list-volumes)

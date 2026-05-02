@@ -1,0 +1,44 @@
+---
+title: bhatti unpublish
+description: Remove a published port. The URL stops working immediately.
+sidebar:
+  label: unpublish
+  order: 2
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Remove a published port. The URL stops working immediately.
+
+## Synopsis
+
+<Synopsis>bhatti unpublish &lt;sandbox&gt; -p &lt;port&gt;</Synopsis>
+
+## Description
+
+Deletes the routing rule. New requests to the previously published URL get a 404 from the proxy. In-flight WebSocket connections continue until the client closes them.
+
+Publish rules are also automatically cleaned up when a sandbox is destroyed — `unpublish` is only needed when you want to keep the sandbox but stop exposing the port.
+
+## Examples
+
+```bash
+bhatti unpublish dev -p 3000
+```
+
+```text
+Unpublished port 3000
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `-p`, `--port <int>` | (required) | Port to unpublish. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti publish`](/docs/reference/cli/networking/publish/)
+- [API: `DELETE /sandboxes/:id/publish/:port`](/docs/reference/api/#unpublish-a-port)

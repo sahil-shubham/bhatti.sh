@@ -1,0 +1,77 @@
+---
+title: bhatti admin metrics
+description: Time-bucketed metrics — request rates, errors, thermal counts, host load.
+sidebar:
+  label: admin metrics
+  order: 12
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+import ServerOnly from '../../../../../../components/docs/ServerOnly.astro';
+
+# bhatti admin metrics <ServerOnly />
+
+Query metrics snapshots over time.
+
+## Synopsis
+
+<Synopsis>sudo bhatti admin metrics [--since &lt;range&gt;]</Synopsis>
+
+## Description
+
+The server takes a metrics snapshot roughly every minute and persists it to the database (in `metrics_snapshots`). This command reads them back and prints a compact table — request rates, error counts, proxy traffic, cold wakes, sandbox state distribution, host load, available memory.
+
+The output is **bucketed automatically** based on the time range:
+
+| Range | Bucket size |
+| ----- | ----------- |
+| < 2 hours | 1 minute |
+| 2–24 hours | 15 minutes |
+| > 24 hours | 1 hour |
+
+Each row aggregates the snapshots in its bucket (sums for counters like `req/min`, last-value for gauges like `LOAD`).
+
+`--since` accepts the same formats as [`admin events --since`](/docs/reference/cli/admin/admin-events/) — relative durations or absolute dates. The default is **1 hour**.
+
+## Examples
+
+```bash
+# Last hour at 1-minute resolution (default)
+sudo bhatti admin metrics
+```
+
+```text
+TIME                REQ/min  ERR  PROXY/min WAKES  HOT WARM  COLD  LOAD   MEM_AVAIL
+14:21                    47    0          8     0    4    6     7    0.4    19421 MB
+14:20                    52    1          9     1    4    5     8    0.5    19388 MB
+14:19                    44    0          7     0    4    4     9    0.5    19412 MB
+...
+```
+
+```bash
+# Last 12 hours, auto-bucketed to 15-minute intervals
+sudo bhatti admin metrics --since 12h
+```
+
+```bash
+# Last week, auto-bucketed to 1-hour intervals
+sudo bhatti admin metrics --since 7d
+```
+
+```bash
+# Machine-readable, raw 1-min snapshots for the last 30 minutes
+sudo bhatti admin metrics --since 30m --json | jq '.[] | .api_requests'
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--since <range>` | `1h` | Earliest snapshot to include. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti admin status`](/docs/reference/cli/admin/admin-status/) — current totals
+- [`bhatti admin events`](/docs/reference/cli/admin/admin-events/) — what happened, when

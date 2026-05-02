@@ -12,10 +12,12 @@
     "astro": "astro"
   },
   "dependencies": {
+    "@astrojs/mdx": "^5.0.3",
     "@astrojs/starlight": "^0.38.3",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "astro": "^6.1.1"
+    "astro": "^6.1.1",
+    "starlight-llms-txt": "^0.8.1"
   },
   "packageManager": "yarn@4.13.0"
 }

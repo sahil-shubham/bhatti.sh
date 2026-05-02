@@ -1,0 +1,61 @@
+---
+title: bhatti volume delete
+description: Delete a persistent volume. Cannot be undone. Volume must be detached.
+sidebar:
+  label: volume delete
+  order: 3
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Delete a persistent volume. **Cannot be undone.**
+
+## Synopsis
+
+<Synopsis>bhatti volume delete &lt;name&gt; [-y]</Synopsis>
+
+## Description
+
+Removes the volume record from the database and deletes the underlying ext4 file.
+
+The volume must be **detached** before deleting — if any sandbox has it mounted, the server returns `409 Conflict`. Stop or destroy the sandbox first, then retry.
+
+By default, prompts for confirmation. In a non-interactive shell without `-y`, the command refuses and exits `1`.
+
+## Examples
+
+```bash
+bhatti volume delete workspace
+```
+
+```text
+Delete volume "workspace"? [y/N]: y
+deleted
+```
+
+```bash
+# Non-interactive
+bhatti volume delete workspace -y
+```
+
+```bash
+# Volume still attached
+bhatti volume delete workspace -y
+```
+
+```text
+409 Conflict: volume "workspace" attached to sandbox "dev"
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `-y`, `--yes` | `false` | Skip confirmation. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti volume list`](/docs/reference/cli/volumes/list/) — find current attachments
+- [API: `DELETE /volumes/:name`](/docs/reference/api/#delete-a-volume)

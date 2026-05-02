@@ -1,0 +1,79 @@
+---
+title: bhatti publish
+description: Publish a sandbox port with a public URL. Cold sandboxes wake on first request.
+sidebar:
+  label: publish
+  order: 1
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Publish a sandbox port at a public URL.
+
+## Synopsis
+
+<Synopsis>bhatti publish &lt;sandbox&gt; -p &lt;port&gt; [-a &lt;alias&gt;] [--shell]</Synopsis>
+
+## Description
+
+Creates a routing rule on the bhatti server: incoming requests to `https://<alias>.<proxy-zone>` get reverse-proxied to `localhost:<port>` inside the sandbox.
+
+**Aliases.** With `-a my-app`, the URL is `https://my-app.<proxy-zone>` exactly. Without `-a`, an alias is generated from the sandbox name with a random suffix (`dev-k3m9x2`) to prevent URL guessing — useful for ephemeral previews.
+
+**Cold sandboxes wake automatically.** The first request after a sandbox went cold takes ~50ms longer than usual; subsequent requests are full speed.
+
+**No auth.** Published URLs are public. Anyone with the URL can reach the port. There's no per-URL access control — share carefully.
+
+**HTTP and WebSocket.** Both work through the proxy. WebSocket idle timeout is 10 minutes; HTTP body cap is 50 MB per request.
+
+**`--shell` combo.** Pass `--shell` to also generate a [web shell token](/docs/reference/cli/networking/share/) in the same call. Useful for "send a teammate a preview URL and a debug terminal in one click".
+
+**Without a custom domain configured.** If the server isn't running in [domain mode](/docs/managing/custom-domain/), there's no `<alias>.<zone>` URL. The CLI prints a fallback hint:
+
+```text
+Publishing requires a custom domain.
+  Setup: https://bhatti.sh/docs/managing/custom-domain
+
+In the meantime, use the proxy URL directly:
+  http://<api-host>/sandboxes/<id>/proxy/<port>/
+```
+
+The proxy URL works but requires Bearer auth, so it's developer-only.
+
+## Examples
+
+```bash
+# Friendly subdomain
+bhatti publish dev -p 3000 -a my-app
+# Published: https://my-app.bhatti.sh
+```
+
+```bash
+# Auto-generated alias
+bhatti publish dev -p 3000
+# Published: https://dev-k3m9x2.bhatti.sh
+```
+
+```bash
+# Preview URL + browser shell, single call
+bhatti publish dev -p 3000 -a demo --shell
+# Published: https://demo.bhatti.sh
+# Shell:     https://api.bhatti.sh/_shell/<id>#token=...
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `-p`, `--port <int>` | (required) | Port inside the sandbox to publish. |
+| `-a`, `--alias <string>` | auto-generated | Custom subdomain alias. Without this, an alias derived from the sandbox name with a random suffix is used. |
+| `--shell` | `false` | Also generate a [web shell URL](/docs/reference/cli/networking/share/) in the same call. The shell URL is printed alongside the published URL. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti unpublish`](/docs/reference/cli/networking/unpublish/) — remove a published port
+- [`bhatti share`](/docs/reference/cli/networking/share/) — web shell URL on its own
+- [Custom domain](/docs/managing/custom-domain/) — required for `<alias>.<zone>` URLs
+- [API: `POST /sandboxes/:id/publish`](/docs/reference/api/#publish-a-port)

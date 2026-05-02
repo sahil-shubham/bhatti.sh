@@ -1,0 +1,51 @@
+---
+/**
+ * <Synopsis> — command syntax block.
+ *
+ * Visually distinct from runnable example code blocks (no copy button, no
+ * frame chrome) because the contents include `<command>` placeholders, not
+ * something a user would paste verbatim.
+ *
+ * Usage:
+ *
+ *   <Synopsis>bhatti create [flags]</Synopsis>
+ *
+ * Or with multiple lines:
+ *
+ *   <Synopsis>{`bhatti exec <sandbox> [--] <command...> [flags]
+ *   bhatti exec <sandbox> -- npm install`}</Synopsis>
+ */
+---
+
+<div class="synopsis">
+  <pre><slot /></pre>
+</div>
+
+<style is:global>
+  .synopsis {
+    margin: 1rem 0;
+    border-left: 2px solid var(--sl-color-gray-5);
+    background: var(--sl-color-gray-7);
+    padding: 0.75rem 1rem;
+    border-radius: 0 4px 4px 0;
+  }
+
+  .synopsis pre {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    font-family: var(--sl-font-mono);
+    font-size: 0.875rem;
+    color: var(--sl-color-gray-1);
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
+  }
+
+  .synopsis pre::before {
+    content: "$ ";
+    color: var(--sl-color-accent);
+    user-select: none;
+  }
+</style>

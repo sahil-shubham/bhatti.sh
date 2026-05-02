@@ -1,0 +1,129 @@
+---
+/**
+ * <ParamRow> — compact parameter row for API endpoint and command Options.
+ *
+ * Renders a single row in the Scalar-style format:
+ *
+ *     namespace   string   required   min length: 3   max length: 50
+ *
+ * Use inside a `<dl class="param-list">` wrapper, or as a sibling block; the
+ * component emits its own row container so it works in either context.
+ *
+ * Props:
+ *   name      — the parameter name (mono, bold)
+ *   type      — the type (e.g. "string", "integer", "boolean", "object")
+ *   required  — when true, shows a small red "required" marker
+ *   default   — when set, shows "Default: <value>" inline
+ *   notes     — array of inline metadata strings (e.g. ["min length: 3", "pattern: ^[a-z]+$"])
+ *
+ * Slot (default): the human-readable description; rendered below the metadata row.
+ */
+
+interface Props {
+  name: string;
+  type?: string;
+  required?: boolean;
+  default?: string | number | boolean;
+  notes?: string[];
+}
+
+const { name, type, required = false, default: defaultValue, notes = [] } = Astro.props;
+---
+
+<div class="param-row">
+  <div class="param-row-meta">
+    <code class="param-name">{name}</code>
+    {type && <span class="param-type">{type}</span>}
+    {required && <span class="param-required">required</span>}
+    {defaultValue !== undefined && (
+      <span class="param-default">
+        Default: <code>{String(defaultValue)}</code>
+      </span>
+    )}
+    {notes.map((n) => <span class="param-note">{n}</span>)}
+  </div>
+  <div class="param-row-desc">
+    <slot />
+  </div>
+</div>
+
+<style is:global>
+  /* The `.bare` modifier strips bhatti-docs.css's default <code> chrome
+     (background, border, padding) so name/value tokens sit flush with the
+     row. Cleaner than fighting specificity on every code element. */
+  .param-row {
+    border-top: 1px solid var(--sl-color-gray-6);
+    padding: 0.6rem 0;
+  }
+
+  .param-row:last-child {
+    border-bottom: 1px solid var(--sl-color-gray-6);
+  }
+
+  .param-row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    align-items: baseline;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+
+  /* Selectors deliberately scope under `.sl-markdown-content` to outrank the
+     global `:not(pre) > code` chrome with one extra class of specificity. */
+  .sl-markdown-content .param-row-meta code.param-name,
+  .sl-markdown-content .param-row-meta .param-default code {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    font-family: var(--sl-font-mono);
+  }
+
+  .sl-markdown-content .param-row-meta code.param-name {
+    font-weight: 600;
+    color: var(--sl-color-white);
+    font-size: 0.875em;
+  }
+
+  .param-row-meta .param-type {
+    color: var(--sl-color-gray-3);
+    font-family: var(--sl-font-mono);
+    font-size: 0.875em;
+  }
+
+  .param-row-meta .param-required {
+    color: #ef4444;
+    font-size: 0.75rem;
+    text-transform: lowercase;
+    letter-spacing: 0.02em;
+  }
+
+  .param-row-meta .param-default,
+  .param-row-meta .param-note {
+    color: var(--sl-color-gray-3);
+    font-size: 0.75rem;
+  }
+
+  .param-row-meta .param-default code {
+    color: var(--sl-color-gray-2);
+    font-size: 1em;
+  }
+
+  .param-row-desc {
+    margin-top: 0.35rem;
+    color: var(--sl-color-gray-2);
+    font-size: 0.875rem;
+  }
+
+  .param-row-desc:empty {
+    display: none;
+  }
+
+  .param-row-desc > p:first-child {
+    margin-top: 0;
+  }
+
+  .param-row-desc > p:last-child {
+    margin-bottom: 0;
+  }
+</style>

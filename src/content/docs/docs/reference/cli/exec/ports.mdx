@@ -1,0 +1,50 @@
+---
+title: bhatti ports
+description: List listening TCP ports detected inside a sandbox, with proxy URLs for each.
+sidebar:
+  label: ports
+  order: 4
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+List the listening TCP ports detected inside a sandbox.
+
+## Synopsis
+
+<Synopsis>bhatti ports &lt;sandbox&gt;</Synopsis>
+
+## Description
+
+The host periodically scans each running sandbox for listening ports and caches them. `bhatti ports` reads that cache and prints one row per port. Each row also shows the path-based proxy URL — a developer convenience for hitting the port from the host without a domain or `bhatti publish`.
+
+The proxy URL goes through the API server at `<api>/sandboxes/<id>/proxy/<port>/...`. It requires the same Bearer auth as any other API call — useful for poking at services during development. For public, auth-free URLs, use [`bhatti publish`](/docs/reference/cli/networking/publish/).
+
+Cold sandboxes are not scanned (they have no listening processes by definition). To list ports for a sleeping sandbox, wake it first or just send a request that triggers a wake.
+
+## Examples
+
+```bash
+bhatti ports dev
+```
+
+```text
+PORT     URL
+3000     http://localhost:8080/sandboxes/dev/proxy/3000/
+6379     http://localhost:8080/sandboxes/dev/proxy/6379/
+```
+
+```bash
+# Quick test against a service inside the sandbox
+bhatti ports dev --json | jq -r '.[] | .proxy_url' | head -1 | xargs curl -H "Authorization: Bearer $BHATTI_TOKEN"
+```
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti publish`](/docs/reference/cli/networking/publish/) — public auth-free URL for a port
+- [API: `GET /sandboxes/:id/ports`](/docs/reference/api/#list-listening-ports)
+- [API: `ANY /sandboxes/:id/proxy/:port/*`](/docs/reference/api/#reverse-proxy)

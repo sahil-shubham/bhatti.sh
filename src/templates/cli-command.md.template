@@ -1,0 +1,75 @@
+---
+title: bhatti <command>
+description: <one-line summary, used for SEO meta tag and llms.txt entry. ≤120 chars.>
+---
+
+import Synopsis from '../../../../../components/docs/Synopsis.astro';
+import ServerOnly from '../../../../../components/docs/ServerOnly.astro';
+
+<!--
+  Per-command page template. Drop this into:
+    src/content/docs/docs/reference/cli/<group>/<command>.md
+
+  Required sections: Synopsis, Description, Examples, Options.
+  Optional sections (omit if trivial / not applicable): Exit codes, See also.
+
+  Always-pre-imports (above): Synopsis, ServerOnly. Add ParamRow if you
+  show structured parameter rows (uncommon for CLI; common for API).
+-->
+
+<!-- One-line summary, in body. Same as `description` frontmatter. -->
+<one-line summary>
+
+## Synopsis
+
+<Synopsis>bhatti <command> <syntax with placeholders> [flags]</Synopsis>
+
+## Description
+
+<Paragraph or two of behaviour. Cover only things a user can't infer from
+the synopsis or options table:
+
+  - Failure modes (what fails this, what's the error message)
+  - Side effects (does it touch local files? wake a cold sandbox?)
+  - Async caveats (returns immediately? blocks until complete?)
+  - Security/auth gotchas (server-only, requires sudo, public URL etc.)
+  - Exit-code semantics, but only if non-trivial (most commands are 0/1)
+
+If the command requires root or DB access, mark it inline with
+<ServerOnly /> next to the H1 instead of repeating it in prose.>
+
+## Examples
+
+```bash
+# Annotated, real example showing the most common use
+bhatti <command> <args>
+```
+
+```bash
+# Less common but useful variant
+bhatti <command> <args> --flag
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--flag <type>` | `default` | Description |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`,
+`--token`, `--json`, `--timing`, `--data-dir`.
+
+<!-- Optional sections below — delete if not relevant. -->
+
+## Exit codes
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | Success |
+| `1` | CLI or API error |
+| `<n>` | (exec only) child process exit code |
+
+## See also
+
+- [`bhatti <related>`](/docs/reference/cli/<group>/<related>/) — short reason for the link
+- [API: `<METHOD> <path>`](/docs/reference/api/#<anchor>)

@@ -1,0 +1,88 @@
+---
+title: bhatti inspect
+description: Show full details for a single sandbox. Aliased as bhatti info.
+sidebar:
+  label: inspect
+  order: 3
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Show full details for one sandbox in `kubectl describe`-style output. Aliased as `bhatti info`.
+
+## Synopsis
+
+<Synopsis>{`bhatti inspect <sandbox>
+bhatti info <sandbox>`}</Synopsis>
+
+## Description
+
+Prints status, thermal state, image, creation/stop timestamps, resource allocation, network info, and `keep_hot`. For sandboxes in the `running` state, disk usage is queried live by running `df -m /` inside the guest — the row shows total / used / free in MB.
+
+Stopped sandboxes show their static disk size; the live `df` query is skipped to avoid waking them.
+
+Use `--json` to get the full sandbox record as JSON for scripting.
+
+## Examples
+
+```bash
+bhatti inspect dev
+```
+
+```text
+Name:       dev
+ID:         a1b2c3d4
+Status:     running
+Thermal:    hot
+Image:      minimal
+Created:    2026-04-29T15:21:48Z
+
+Resources:
+  CPUs:     2
+  Memory:   1024 MB
+  Disk:     8192 MB (1247 MB used, 6945 MB free)
+
+Network:
+  IP:       192.168.137.2
+```
+
+```bash
+bhatti info agent --json | jq .keep_hot
+```
+
+```text
+true
+```
+
+```bash
+# Stopped sandbox — no live df, static disk size shown
+bhatti inspect scraper
+```
+
+```text
+Name:       scraper
+ID:         e5f6g7h8
+Status:     stopped
+Thermal:    cold
+Image:      browser
+Created:    2026-04-22T10:14:03Z
+Stopped:    2026-04-29T08:55:12Z
+
+Resources:
+  CPUs:     1
+  Memory:   2048 MB
+  Disk:     — (stopped)
+
+Network:
+  IP:       192.168.137.8
+```
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti list`](/docs/reference/cli/sandbox/list/) — list all sandboxes
+- [`bhatti edit`](/docs/reference/cli/sandbox/edit/) — change mutable settings
+- [API: `GET /sandboxes/:id`](/docs/reference/api/#get-a-sandbox)

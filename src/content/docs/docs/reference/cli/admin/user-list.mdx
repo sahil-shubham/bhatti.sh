@@ -1,0 +1,46 @@
+---
+title: bhatti user list
+description: List users with their resource limits and current sandbox counts.
+sidebar:
+  label: user list
+  order: 7
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+import ServerOnly from '../../../../../../components/docs/ServerOnly.astro';
+
+# bhatti user list <ServerOnly />
+
+List all users on the server.
+
+## Synopsis
+
+<Synopsis>sudo bhatti user list</Synopsis>
+
+## Description
+
+Lists all users with ID, name, current sandbox count vs. limit, per-sandbox CPU and memory caps, and assigned subnet index. Reads from the local SQLite database.
+
+## Examples
+
+```bash
+sudo bhatti user list
+```
+
+```text
+ID           NAME                 SANDBOXES CPUS   MEM    SUBNET
+usr_a1b2c3d4 alice                3/10      4      4096   2
+usr_e5f6g7h8 bob                  0/5       4      4096   3
+usr_i9j0k1l2 worker-bot           5/5       2      2048   4
+```
+
+The `SANDBOXES` column is `current/limit` — `5/5` means at-cap.
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti user create`](/docs/reference/cli/admin/user-create/)
+- [`bhatti admin status`](/docs/reference/cli/admin/admin-status/) — also shows per-user sandbox breakdown

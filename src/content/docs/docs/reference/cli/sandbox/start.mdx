@@ -1,0 +1,52 @@
+---
+title: bhatti start
+description: Resume a stopped sandbox from its snapshot.
+sidebar:
+  label: start
+  order: 6
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Resume a stopped sandbox from its on-disk snapshot. The VM continues exactly where it left off — same processes, same memory, same network connections.
+
+## Synopsis
+
+<Synopsis>bhatti start &lt;sandbox&gt; [--force]</Synopsis>
+
+## Description
+
+Restores the VM from `mem.snap` + `vm.snap` and re-attaches it to its TAP device. Typical resume latency is ~50ms for a cold sandbox (snapshot read from disk) and sub-millisecond for a warm one (memory still allocated).
+
+If a previous restore failed (for example because the underlying rootfs file was corrupt or a TAP device couldn't be allocated), the sandbox enters the `unknown` state and `bhatti start` refuses to retry by default. Pass `--force` to retry — useful after fixing the underlying issue.
+
+You normally don't need to call `start` explicitly. Any API request — `exec`, `file read`, an HTTP request to a published URL — wakes a cold sandbox transparently before executing.
+
+## Examples
+
+```bash
+bhatti start dev
+```
+
+```text
+sandbox/dev started
+```
+
+```bash
+# Retry after a previously failed restore
+bhatti start dev --force
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--force` | `false` | Retry start even if the sandbox is in an `unknown` state from a previously failed restore. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti stop`](/docs/reference/cli/sandbox/stop/) — snapshot and stop
+- [Thermal states](/docs/under-the-hood/thermal-states/) — automatic resume
+- [API: `POST /sandboxes/:id/start`](/docs/reference/api/#start-a-sandbox)

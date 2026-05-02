@@ -1,0 +1,66 @@
+---
+title: bhatti shell
+description: Open an interactive shell inside a sandbox. Detach with Ctrl+\, reattach later, scrollback preserved.
+sidebar:
+  label: shell
+  order: 2
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Open an interactive terminal inside a sandbox. Aliased as `bhatti sh`.
+
+## Synopsis
+
+<Synopsis>{`bhatti shell <sandbox> [--new]
+bhatti sh <sandbox>`}</Synopsis>
+
+## Description
+
+Opens a WebSocket connection to the sandbox's guest agent and attaches a PTY session. The default shell is `/bin/zsh`. Terminal resize is forwarded to the guest.
+
+**Detach with `Ctrl+\`.** The shell keeps running; output flows into a 64 KB scrollback ring buffer in the guest. Reconnect with `bhatti shell <sandbox>` and you'll see the recent scrollback followed by live I/O. Detach does **not** send `SIGHUP` — child processes survive.
+
+**Single attached client per session.** If you reattach from a second machine, the first client is disconnected. Use `--new` to force a brand-new session instead of reattaching.
+
+**Clean exit vs. lost connection.** When the shell exits cleanly (Ctrl+D, `exit`), the CLI returns silently. Any other disconnection (network drop, server restart) shows:
+
+```text
+connection lost (session s3f9 still running)
+reconnect: bhatti shell dev
+```
+
+The session keeps running in the guest. Reattach with the same command to pick it back up.
+
+## Examples
+
+```bash
+bhatti shell dev
+```
+
+```bash
+# Force a new session, even if one is already attached
+bhatti shell dev --new
+```
+
+```bash
+# Detach scenario:
+bhatti shell dev          # attach, run things, hit Ctrl+\
+# ...session keeps running in the guest...
+bhatti shell dev          # reattach later, scrollback replayed
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--new` | `false` | Don't reattach to an existing session. Start a fresh one. The previous session, if any, is left running. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti exec`](/docs/reference/cli/exec/exec/) — non-interactive command execution
+- [`bhatti ps`](/docs/reference/cli/exec/ps/) — list active sessions including this shell
+- [`bhatti share`](/docs/reference/cli/networking/share/) — browser-based shell URL
+- [API: `GET /sandboxes/:id/ws`](/docs/reference/api/#interactive-shell-websocket)

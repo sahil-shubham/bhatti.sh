@@ -1,0 +1,91 @@
+---
+title: bhatti admin events
+description: Query the event log. Filter by type, user, sandbox, time range.
+sidebar:
+  label: admin events
+  order: 11
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+import ServerOnly from '../../../../../../components/docs/ServerOnly.astro';
+
+# bhatti admin events <ServerOnly />
+
+Query the structured event log.
+
+## Synopsis
+
+<Synopsis>{`sudo bhatti admin events
+  [--type <prefix>] [--user <name|id>] [--sandbox <name|id>]
+  [--since <range>] [--limit <n>] [--count]`}</Synopsis>
+
+## Description
+
+Returns rows from the audit/observability event log stored in the local database. Each event captures a moment in the system: sandbox lifecycle changes, thermal transitions, snapshot operations, image pulls, auth failures, proxy errors, daemon start/shutdown, and more.
+
+Default output is one row per event with timestamp, type, user, sandbox, and a per-event-type summary line. JSON output includes the full meta object.
+
+`--type` is a **prefix match**, so `--type thermal` matches `thermal.pause`, `thermal.wake`, `thermal.snapshot`, etc.
+
+`--since` accepts:
+- Relative durations: `30s`, `15m`, `24h`, `7d`.
+- Absolute dates: `2026-04-01` (UTC midnight), `2026-04-01T12:00:00`, full RFC3339.
+
+`--user` and `--sandbox` accept either the name or the internal ID. Names are easier; IDs are stable across renames.
+
+`--count` returns a number-only response — useful for alerting/scripting (`if [[ $(bhatti admin events --type auth.failed --since 5m --count) -gt 10 ]]; then ...`).
+
+## Examples
+
+```bash
+# Last 50 events of any kind
+sudo bhatti admin events
+```
+
+```bash
+# All thermal events in the last day
+sudo bhatti admin events --type thermal --since 24h
+```
+
+```bash
+# Auth failures in the last hour, count only
+sudo bhatti admin events --type auth.failed --since 1h --count
+```
+
+```text
+3
+```
+
+```bash
+# Everything Alice did this week
+sudo bhatti admin events --user alice --since 7d
+```
+
+```bash
+# Drill into one sandbox's history
+sudo bhatti admin events --sandbox dev --since 24h
+```
+
+```bash
+# JSON for piping into jq
+sudo bhatti admin events --type sandbox.destroyed --since 7d --json \
+  | jq '[.[] | .meta.lifetime_s] | add / length'   # avg sandbox lifetime
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--type <prefix>` | — | Filter by event type. Prefix match (`thermal` matches `thermal.*`). |
+| `--user <name\|id>` | — | Filter by user. Name or user ID. |
+| `--sandbox <name\|id>` | — | Filter by sandbox. Name or ID. |
+| `--since <range>` | — | Earliest event to include. Relative (`24h`, `7d`) or absolute (`2026-04-01`). |
+| `--limit <int>` | `50` | Maximum number of events to return. |
+| `--count` | `false` | Return only the count of matching events, not the rows. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti admin status`](/docs/reference/cli/admin/admin-status/) — shows the most recent ~10 events inline
+- [`bhatti admin metrics`](/docs/reference/cli/admin/admin-metrics/) — counter-based view

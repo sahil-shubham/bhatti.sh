@@ -1,0 +1,76 @@
+---
+title: bhatti image share
+description: Share an image with specific users. Operates directly on the local SQLite database; requires DB access (server-only).
+sidebar:
+  label: image share
+  order: 6
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+import ServerOnly from '../../../../../../components/docs/ServerOnly.astro';
+
+# bhatti image share <ServerOnly />
+
+Share an image with one or more specific users.
+
+## Synopsis
+
+<Synopsis>{`bhatti image share <image-name> --user <name> [--user <name>]...
+bhatti image share <image-name> --list`}</Synopsis>
+
+## Description
+
+Adds an entry to the image-share table for each `<user>` so that user can reference the image with `--image <name>` from their sandbox creation calls. Sharing is per-user; there's no "public" or "everyone" mode.
+
+The command operates directly on the server's SQLite database — it isn't an HTTP API call. You must run it on the server, with access to `/var/lib/bhatti/state.db` (typically as `sudo`).
+
+`--list` prints the users an image is currently shared with. `--unshare` is its own command, [`bhatti image unshare`](/docs/reference/cli/images/unshare/).
+
+## Examples
+
+```bash
+# Share with two users
+sudo bhatti image share spc-golden --user kowshik --user sumo
+```
+
+```text
+shared "spc-golden" with: kowshik, sumo
+```
+
+```bash
+# Inspect current shares
+sudo bhatti image share spc-golden --list
+```
+
+```text
+spc-golden shared with: kowshik, sumo
+```
+
+```bash
+# Image not yet shared
+sudo bhatti image share spc-golden --list
+```
+
+```text
+spc-golden: not shared
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--user <name>` | — | User to share with. Repeatable. Required unless `--list`. |
+| `--list` | `false` | Print current shares for the image instead of adding new ones. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## Failure modes
+
+- **Image not found**: bhatti can't see your image because of name typos or because it's owned by a different user. Check with `bhatti image list`.
+- **User not found**: the `<name>` doesn't match any user. Check with `bhatti user list`.
+- **No `--user`**: the command refuses to do anything without an explicit user list (or `--list`). There's no global "share with all" mode.
+
+## See also
+
+- [`bhatti image unshare`](/docs/reference/cli/images/unshare/) — revoke access
+- [`bhatti user list`](/docs/reference/cli/admin/user-list/) — find usernames

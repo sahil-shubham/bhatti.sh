@@ -1,0 +1,47 @@
+---
+title: bhatti file read
+description: Read a file from a sandbox to stdout.
+sidebar:
+  label: file read
+  order: 1
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Read a file from a sandbox and write its bytes to stdout.
+
+## Synopsis
+
+<Synopsis>bhatti file read &lt;sandbox&gt; &lt;path&gt;</Synopsis>
+
+## Description
+
+Streams the file's contents to stdout, byte-for-byte. The path must be absolute. Cold sandboxes wake transparently before the read.
+
+The CLI always reads the whole file. The API supports partial reads (`offset`, `limit`, `max_bytes` query params) for tailing logs without transferring the entire file — call it directly when you need that. Every response includes an `X-File-Size` header so clients can detect truncation. See [API: files](/docs/reference/api/#files).
+
+## Examples
+
+```bash
+bhatti file read dev /workspace/app.js
+```
+
+```bash
+# Pipe to other tools
+bhatti file read dev /workspace/data.json | jq .name
+```
+
+```bash
+# Save to a local file
+bhatti file read dev /var/log/agent.log > agent-$(date +%F).log
+```
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti file write`](/docs/reference/cli/files/write/) — opposite direction
+- [`bhatti file ls`](/docs/reference/cli/files/ls/) — list a directory
+- [API: `GET /sandboxes/:id/files`](/docs/reference/api/#read-a-file)

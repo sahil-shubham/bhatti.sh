@@ -1,0 +1,49 @@
+---
+title: bhatti image unshare
+description: Revoke image access from specific users. Server-only.
+sidebar:
+  label: image unshare
+  order: 7
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+import ServerOnly from '../../../../../../components/docs/ServerOnly.astro';
+
+# bhatti image unshare <ServerOnly />
+
+Revoke an image's share entries for one or more users.
+
+## Synopsis
+
+<Synopsis>bhatti image unshare &lt;image-name&gt; --user &lt;name&gt; [--user &lt;name&gt;]...</Synopsis>
+
+## Description
+
+Removes share-table entries for the listed users. After unsharing, those users will no longer see the image in [`bhatti image list`](/docs/reference/cli/images/list/) and can't reference it by name in `bhatti create --image`.
+
+Sandboxes the affected users already created from the image keep running — they have their own copy-on-write rootfs and don't reference the original.
+
+Like [`image share`](/docs/reference/cli/images/share/), this operates directly on the local SQLite database. Requires DB access on the server (typically `sudo`).
+
+## Examples
+
+```bash
+sudo bhatti image unshare spc-golden --user sumo
+```
+
+```text
+unshared "spc-golden" from: sumo
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--user <name>` | (required) | User to revoke. Repeatable. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti image share`](/docs/reference/cli/images/share/) — add a share
+- [`bhatti image share --list`](/docs/reference/cli/images/share/) — see who has access

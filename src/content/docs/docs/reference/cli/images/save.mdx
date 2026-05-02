@@ -1,0 +1,55 @@
+---
+title: bhatti image save
+description: Save a running sandbox's rootfs as a reusable image.
+sidebar:
+  label: image save
+  order: 4
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Snapshot a running sandbox's filesystem and save it as a reusable image.
+
+## Synopsis
+
+<Synopsis>bhatti image save &lt;sandbox&gt; --name &lt;image-name&gt;</Synopsis>
+
+## Description
+
+Captures the current state of the sandbox's rootfs (every file written since boot) and writes it to a new ext4 image owned by the user. The sandbox keeps running; the save is read-only from its perspective.
+
+Only the rootfs is captured — attached persistent volumes are **not** included. If your sandbox stores work in a volume, save the volume separately with [`bhatti volume clone`](/docs/reference/cli/volumes/clone/) and recreate the attachment when stamping out new sandboxes from the saved image.
+
+The saved image is private to the user. To make it available to other users, use [`bhatti image share`](/docs/reference/cli/images/share/) (server-only).
+
+## Examples
+
+```bash
+# Build a custom environment, then save it
+bhatti create --name build --image minimal
+bhatti exec build -- apt-get update && apt-get install -y nodejs
+bhatti exec build -- npm install -g pnpm
+
+bhatti image save build --name node-app
+# saved "node-app" (512MB)
+```
+
+```bash
+# Stamp out workers from the saved image
+bhatti create --name worker-1 --image node-app
+bhatti create --name worker-2 --image node-app
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--name <string>` | (required) | Name for the saved image. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti volume clone`](/docs/reference/cli/volumes/clone/) — for snapshotting volume data alongside an image
+- [`bhatti snapshot create`](/docs/reference/cli/snapshots/create/) — full VM snapshot (memory + disk + processes), not just filesystem
+- [API: `POST /sandboxes/:id/save-image`](/docs/reference/api/#save-a-sandbox-as-an-image)

@@ -1,84 +1,91 @@
 ---
 title: Images & Tiers
-description: Built-in tiers, OCI pulls, Docker imports, and saving sandboxes as images.
+description: Built-in rootfs tiers, custom-image workflows, and how image scoping and sharing work.
 ---
 
-bhatti ships with pre-built Ubuntu 24.04 images (tiers). You can also pull from OCI registries, import from Docker, or save a sandbox's filesystem as a reusable image.
+Sandbox root filesystems are ext4 images. bhatti ships pre-built Ubuntu 24.04 *tier* images out of the box and supports three ways to add your own: pull from a public OCI registry, import a Docker image, or save a configured sandbox as an image.
+
+The full CLI surface is in [Images reference](/docs/reference/cli/images/). This page covers the tier landscape, the typical workflows, and how scoping/sharing work — none of which is in the per-command pages.
 
 ## Built-in tiers
 
 | Tier | What's in it | Size |
-|------|-------------|------|
-| `minimal` | Bare Ubuntu + curl + fuse3 | ~200MB |
-| `browser` | + Chromium, Playwright, Node 22 | ~600MB |
-| `docker` | + Docker Engine | ~550MB |
-| `computer` | + Full desktop: XFCE, KasmVNC, Chromium | ~1.5GB |
+| ---- | ------------ | ---- |
+| `minimal` | Bare Ubuntu 24.04 + curl + fuse3 | ~200 MB |
+| `browser` | + Chromium, Playwright, Node 22 | ~600 MB |
+| `docker` | + Docker Engine | ~550 MB |
+| `computer` | + XFCE desktop, KasmVNC, Chromium | ~1.5 GB |
 
 ```bash
 bhatti create --name scraper --image browser
 bhatti create --name ci --image docker
 ```
 
-Install additional tiers with `sudo bhatti update --tiers all`. The server auto-discovers tiers from `/var/lib/bhatti/images/`.
+The server install prompts for one tier on first run; install more later with `sudo bhatti update --tiers all` (or a comma-separated list). Tiers are auto-discovered from `<data_dir>/images/rootfs-<tier>-<arch>.ext4` — no hardcoded list.
 
-## Available images
+## Building custom images
 
-```bash
-bhatti image list
-```
+Three workflows depending on where the source lives.
 
-```bash
-curl http://localhost:8080/images \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-## Pull from OCI registry
+### Pull from a public registry
 
 ```bash
-bhatti image pull ghcr.io/myorg/sandbox-base:latest
+bhatti image pull python:3.12
+bhatti image pull node:22-slim --name node-22
 ```
 
-Pulls an OCI image and extracts it as a rootfs. This is an async operation — use `bhatti image list` to check progress, or the task ID returned by the API.
+Async, server-side. The CLI shows progress and exits when the image is ready.
 
-## Import from Docker
+### Import from local Docker
 
 ```bash
-bhatti image import node:20-slim
+docker pull ghcr.io/myorg/private:latest        # any auth Docker can do
+bhatti image import ghcr.io/myorg/private:latest
 ```
 
-Exports a Docker image and converts it to a bhatti rootfs. Requires Docker to be running on the host.
+The CLI runs `docker save` locally and streams the tar to the server. This is the recommended path for private registries — Docker handles your existing auth, bhatti just receives bytes.
 
-## Save from a sandbox
+For tarballs without Docker:
 
 ```bash
-bhatti image save dev --name my-configured-env
+docker save ubuntu:24.04 > /tmp/ubuntu.tar
+bhatti image import --tar /tmp/ubuntu.tar --name ubuntu-24
 ```
 
-Snapshots the current filesystem of a running sandbox as a reusable image. Useful for creating pre-configured environments (installed dependencies, config files, etc.).
-
-## Use an image
+### Save a configured sandbox
 
 ```bash
-bhatti create --name dev --image my-configured-env
+bhatti create --name build --image minimal
+bhatti exec build -- apt-get update && apt-get install -y nodejs pnpm
+bhatti exec build -- pnpm install -g some-tool
+
+bhatti image save build --name node-stack
 ```
 
-```json
-{"name": "dev", "image": "my-configured-env"}
-```
-
-## Share images
+The captured image now stamps out new sandboxes with everything pre-installed:
 
 ```bash
-bhatti image share my-configured-env     # make available to all users
-bhatti image unshare my-configured-env   # restrict to owner
+bhatti create --name worker-1 --image node-stack
+bhatti create --name worker-2 --image node-stack
 ```
 
-By default, images are scoped to the user who created them. Sharing makes them available to all users on the server.
+Only the **rootfs** is captured — persistent volumes are not part of the image. If your stack puts work in a volume, snapshot the volume separately ([`bhatti volume clone`](/docs/reference/cli/volumes/clone/)) and re-attach when stamping.
 
-## Delete
+## Scoping and sharing
+
+Images you create are private to your user — other users can't see them in `image list`, can't reference them by name, can't read the underlying file.
+
+To share an image with a specific user (or list of users):
 
 ```bash
-bhatti image delete my-configured-env
+sudo bhatti image share my-image --user alice --user bob
 ```
 
-For all parameters, see the [API Reference](/docs/reference/api/) and [CLI Reference: Resources](/docs/reference/cli/resources/).
+This command operates directly on the local SQLite database, so it requires running on the server with DB access (`sudo`). It is not an HTTP API call. There's no "share with everyone" mode — sharing is always with named users. Inspect current shares with `--list`; revoke with [`bhatti image unshare`](/docs/reference/cli/images/unshare/).
+
+System tier images (`minimal`, `browser`, …) are visible to everyone on the server automatically; they live under `user_id=""` in the database.
+
+## See also
+
+- [Images reference](/docs/reference/cli/images/) — every command
+- [Adding a tier](/docs/contributing/adding-a-tier/) — build a new system tier

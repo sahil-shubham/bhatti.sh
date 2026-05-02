@@ -1,0 +1,60 @@
+---
+title: bhatti setup
+description: Configure the CLI's API endpoint and key. Saves to ~/.bhatti/config.yaml.
+sidebar:
+  label: setup
+  order: 2
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Interactive configuration for the CLI.
+
+## Synopsis
+
+<Synopsis>bhatti setup</Synopsis>
+
+## Description
+
+Prompts for the API endpoint and API key, writes them to `~/.bhatti/config.yaml`, and tests the connection by listing sandboxes.
+
+The auth test hits `GET /sandboxes` (an authenticated endpoint), so a bad key fails immediately rather than appearing to succeed. If authentication works, the CLI also detects your shell and prints the appropriate `completion` snippet for one-line install.
+
+Run this on each machine you want to use as a CLI client. The server itself doesn't usually need it — server-side commands (`user`, `admin`) read the data directory directly.
+
+## Examples
+
+```bash
+bhatti setup
+```
+
+```text
+API endpoint [http://localhost:8080]: https://api.bhatti.sh
+API key: <enter your key — input is hidden>
+Saved to /home/alice/.bhatti/config.yaml
+Testing connection... ✓ authenticated (3 sandboxes)
+
+Enable completions:
+  echo 'source <(bhatti completion zsh)' >> ~/.zshrc
+```
+
+## Options
+
+This command takes no flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## Configuration file
+
+After `setup`, your config looks like:
+
+```yaml
+api_url: https://api.bhatti.sh
+auth_token: bht_abc123def456...
+```
+
+Override at runtime with `--url`, `--token`, `BHATTI_URL`, or `BHATTI_TOKEN`. See [Configuration precedence](/docs/reference/cli/#configuration-precedence).
+
+## See also
+
+- [`bhatti version`](/docs/reference/cli/admin/version/) — check connection without changing config
+- [`bhatti completion`](/docs/reference/cli/admin/completion/) — shell completions
+- [Configuration](/docs/reference/config/) — file format

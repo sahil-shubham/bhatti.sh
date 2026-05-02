@@ -1,0 +1,98 @@
+---
+title: bhatti exec
+description: Execute a command inside a sandbox. Streaming or buffered output, optional timeout, optional detach.
+sidebar:
+  label: exec
+  order: 1
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Execute a command inside a sandbox. The exit code of the child process is forwarded to the CLI's exit code. Sleeping sandboxes wake automatically.
+
+## Synopsis
+
+<Synopsis>{`bhatti exec <sandbox> [--] <command...> [flags]`}</Synopsis>
+
+## Description
+
+The `--` separator is optional — `bhatti exec dev echo hello` works just like `bhatti exec dev -- echo hello`. Use `--` only when the command contains flags that cobra would otherwise try to parse (e.g. `bhatti exec dev -- ls -la /tmp`).
+
+Commands run as the unprivileged user `lohar` (uid 1000), not root. Use `sudo` inside the sandbox for root operations. Stdout and stderr are kept on separate streams; when output is captured, the result distinguishes them.
+
+**Output mode auto-detects:**
+
+- **Stdout is a TTY** → streaming NDJSON, line-by-line, flushed as the process emits it. You see `npm install`'s progress bar in real time.
+- **Stdout is a pipe or `--json` is set** → buffered. The CLI prints a JSON object `{exit_code, stdout, stderr}` once the command finishes.
+- **`BHATTI_FORCE_STREAM=1`** → forces streaming even when piping. Useful for CI logs that want progressive output.
+
+**Cold sandboxes wake transparently.** If the sandbox is `cold` or `warm`, the server resumes it before executing — typically ~50ms for cold, sub-millisecond for warm. The wake is invisible to the caller; the command just takes a bit longer.
+
+**Failures get recovery hints.** Common errors (sandbox not found, sandbox not running, name conflict, quota reached) are followed by a one-line suggestion in stderr. For example:
+
+```text
+404 Not Found: sandbox not found
+
+  Check sandbox name:
+    bhatti ls
+```
+
+## Examples
+
+```bash
+# Most basic
+bhatti exec dev -- echo hello
+```
+
+```bash
+# -- is optional
+bhatti exec dev echo hello
+```
+
+```bash
+# Pipe output to other tools — CLI switches to buffered mode automatically
+bhatti exec dev -- cat /workspace/data.json | jq .name
+```
+
+```bash
+# Shell expansion needs a shell — env vars in the *guest*, not in your terminal
+bhatti exec dev -- bash -c 'echo $API_KEY'
+```
+
+```bash
+# Cap a long-running command at 60s
+bhatti exec dev --timeout 60 -- ./benchmark.sh
+```
+
+```bash
+# Run in the background, return immediately with the guest PID
+bhatti exec dev --detach -- ./worker.sh
+```
+
+```text
+pid: 4218
+output: /var/log/lohar/sessions/sess-7b3c.log
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--timeout <int>` | `300` | Exec timeout in seconds. The server kills the process group on timeout and returns exit code `137`. Hard max: `86400` (24 hours). The CLI's `--help` text says `3600`; that's stale — the server cap is `86400`. |
+| `--detach` | `false` | Run the command in the background and return immediately with the guest PID and the path to the captured output file. The session continues until it finishes or is killed. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## Exit codes
+
+| Code | Meaning |
+| ---- | ------- |
+| `<n>` | The child process's exit code is forwarded verbatim. |
+| `137` | The child was killed (timeout exceeded, or session manually killed). |
+| `1` | CLI / API error before the command ran (sandbox not found, network, auth). |
+
+## See also
+
+- [`bhatti shell`](/docs/reference/cli/exec/shell/) — interactive shell with reattach
+- [`bhatti ps`](/docs/reference/cli/exec/ps/) — see detached / running sessions
+- [API: `POST /sandboxes/:id/exec`](/docs/reference/api/#run-a-command)

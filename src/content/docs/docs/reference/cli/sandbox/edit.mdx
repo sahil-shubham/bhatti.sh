@@ -1,0 +1,51 @@
+---
+title: bhatti edit
+description: Update mutable settings on a sandbox. Currently keep-hot only.
+sidebar:
+  label: edit
+  order: 4
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Update mutable settings on a running or stopped sandbox.
+
+## Synopsis
+
+<Synopsis>{`bhatti edit <sandbox> --keep-hot
+bhatti edit <sandbox> --allow-cold`}</Synopsis>
+
+## Description
+
+Currently the only mutable setting is the thermal-management toggle. Resource fields like `cpus` and `memory_mb` are immutable after creation — destroy and re-create instead.
+
+Setting `--keep-hot` on a stopped sandbox immediately wakes it, since "kept hot" implies running. Setting `--allow-cold` doesn't pause the sandbox; it just re-enables the thermal manager's automatic transitions.
+
+`--keep-hot` and `--allow-cold` are mutually exclusive.
+
+## Examples
+
+```bash
+# Pin an autonomous agent so it's never paused
+bhatti edit my-agent --keep-hot
+```
+
+```bash
+# Re-enable automatic thermal transitions
+bhatti edit my-agent --allow-cold
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--keep-hot` | `false` | Disable thermal transitions. Wakes the sandbox if it was stopped. |
+| `--allow-cold` | `false` | Re-enable thermal transitions. Does not actively pause the sandbox. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti create --keep-hot`](/docs/reference/cli/sandbox/create/) — set this at creation
+- [Thermal states](/docs/under-the-hood/thermal-states/) — how hot/warm/cold transitions work
+- [API: `PATCH /sandboxes/:id`](/docs/reference/api/#update-a-sandbox)

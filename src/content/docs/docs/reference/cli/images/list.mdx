@@ -1,0 +1,61 @@
+---
+title: bhatti image list
+description: List all rootfs images available to the authenticated user.
+sidebar:
+  label: image list
+  order: 1
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+List all rootfs images available to the authenticated user.
+
+## Synopsis
+
+<Synopsis>bhatti image list</Synopsis>
+
+## Description
+
+Lists images in three scopes:
+- **System tiers** (`minimal`, `browser`, `docker`, `computer`) — visible to everyone.
+- **Your own images** — created via `image pull`, `image import`, or `image save`.
+- **Images shared with you** by another user.
+
+## Examples
+
+```bash
+bhatti image list
+```
+
+```text
+ID                   NAME                 SOURCE                         SIZE       SCOPE
+img_abc123           minimal              built-in                       186MB      admin
+img_def456           browser              built-in                       612MB      admin
+img_ghi789           python-3.12          oci:python:3.12                284MB      user
+img_jkl012           my-stack             snapshot:dev                   512MB      user
+```
+
+```bash
+# JSON for scripting
+bhatti image list --json | jq '.[] | select(.user_id != "") | .name'
+```
+
+## Output fields (JSON)
+
+```json
+[
+  {"id": "img_abc123", "name": "minimal", "source": "built-in", "size_mb": 186, "user_id": ""},
+  {"id": "img_jkl012", "name": "my-stack", "source": "snapshot:dev", "size_mb": 512, "user_id": "usr_..."}
+]
+```
+
+`user_id` is empty for system images; non-empty values denote ownership.
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti image pull`](/docs/reference/cli/images/pull/) / [`import`](/docs/reference/cli/images/import/) / [`save`](/docs/reference/cli/images/save/)
+- [API: `GET /images`](/docs/reference/api/#list-images)

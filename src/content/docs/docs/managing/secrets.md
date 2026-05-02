@@ -1,52 +1,54 @@
 ---
 title: Secrets
-description: Encrypted secret management with age encryption at rest.
+description: How encryption, scoping, and env-var injection work for sandbox secrets.
 ---
 
-Store sensitive values that are automatically injected as environment variables into every command. Encrypted at rest with [age](https://age-encryption.org/), scoped per user.
+Secrets are values you'd rather not put on a command line. bhatti stores them encrypted, scoped per user, and injects them as environment variables when a sandbox boots.
 
-## CLI
+The CLI surface lives in [Secrets reference](/docs/reference/cli/secrets/). This page covers the *model* — what's encrypted, what isn't, and the rules for which env var wins when multiple sources set the same name.
 
-```bash
-bhatti secret set API_KEY sk-abc123def
-bhatti secret list
-bhatti secret delete API_KEY
-```
+## Encryption at rest
 
-## API
+On first start the daemon generates an [age](https://age-encryption.org/) keypair at `<data_dir>/age.key`. Every secret you set is encrypted under this key. Plaintext is never written to disk on the server — not in the database, not in temp files.
 
-```bash
-# Set
-curl -X POST http://localhost:8080/secrets \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"name": "API_KEY", "value": "sk-abc123def"}'
+The age key file is the only thing that decrypts your secrets. Back it up alongside the database; lose either and the secrets become unrecoverable.
 
-# List (names only, values are never returned)
-curl http://localhost:8080/secrets \
-  -H "Authorization: Bearer $TOKEN"
+## Scoping
 
-# Delete
-curl -X DELETE http://localhost:8080/secrets/API_KEY \
-  -H "Authorization: Bearer $TOKEN"
-```
+Secrets are per-user. Other users can't list, read, or reference them by name. There's no shared / global secret store.
 
-## How secrets work
+`secret list` returns names + timestamps but never the encrypted blob — once a value is set, you can replace it with `secret set NAME new-value` but you can't read it back.
 
-1. **Encryption at rest.** Values are encrypted with an age key stored at `/var/lib/bhatti/age.key`. The key is generated on first server start.
-2. **Injected as env vars.** When a sandbox executes a command, secrets are decrypted and passed as environment variables. They override defaults but can be overridden by per-request env vars.
-3. **Scoped to user.** Each user has their own secrets. Users cannot see or modify another user's secrets.
-4. **Names only in list.** `secret list` returns secret names but never values. This is a security measure — once set, a secret's value can only be replaced, not read back.
+## How injection works
 
-## Secret priority
+When a sandbox is created with `--secret API_KEY`:
 
-Environment variables in a command are resolved in this order (last wins):
+1. The server fetches the encrypted blob from the secrets table for that user.
+2. It decrypts under the age key.
+3. The plaintext is written into the sandbox's config drive (`config.ext4`) as part of the env-var bundle.
+4. lohar reads the config drive at boot and exports `API_KEY=<plaintext>` to every command run inside the sandbox.
+
+The config drive is unmounted after boot so the value isn't readable from the running rootfs without lohar's help.
+
+## Env var priority inside a sandbox
+
+When a command runs, env vars resolve in this order — later wins:
 
 ```
-defaults (PATH, TERM, HOME, LANG)
-    ↓ overridden by
-secrets (from bhatti secret set)
-    ↓ overridden by
-sandbox env (from create --env)
-    ↓ overridden by
-per-request env (from exec --env or API body)
+1. defaults                (PATH, HOME, TERM, LANG)
+       ↓
+2. secrets                 (--secret NAME at create time)
+       ↓
+3. sandbox env             (--env K=V at create time)
 ```
+
+There is **no** per-`bhatti exec` env override. The `POST /sandboxes/:id/exec` endpoint doesn't accept an `env` field — anything passed there is silently ignored. To inject env vars at exec time, use the WebSocket exec path (which does take an `env` map on the initial JSON command spec). For most use cases, set them at create time and accept that they apply to every command.
+
+## Caveat: `--template` ignores `--secret`
+
+Creating a sandbox from a template silently drops request-side `--secret` and `--file` flags. Only the secrets pre-configured on the template are honoured. If you need request-time secrets, create directly without `--template`.
+
+## See also
+
+- [Secrets reference](/docs/reference/cli/secrets/) — `set`, `list`, `delete`
+- [`bhatti create --secret`](/docs/reference/cli/sandbox/create/) — inject at sandbox boot

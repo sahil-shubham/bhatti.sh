@@ -1,0 +1,134 @@
+---
+title: bhatti create
+description: Create a new sandbox VM with custom resources, environment, init script, volumes, and secrets.
+sidebar:
+  label: create
+  order: 1
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Create a new sandbox VM. Each sandbox is an isolated Linux environment with its own kernel, filesystem, and network interface — created in seconds, paused for free, resumed in microseconds.
+
+## Synopsis
+
+<Synopsis>bhatti create [flags]</Synopsis>
+
+## Description
+
+Boots a Firecracker microVM and registers it under the authenticated user. Returns once the VM is reachable on its private IP and the guest agent is responding.
+
+The created sandbox is in the `running` (hot) thermal state. Without `--keep-hot`, it pauses to *warm* after 30 seconds of inactivity and freezes to *cold* (memory snapshotted to disk, RAM freed) after 30 minutes. Any incoming request transparently wakes it.
+
+`--volume` and `--secret` reference resources that must already exist (create them with [`bhatti volume create`](/docs/reference/cli/volumes/create/) and [`bhatti secret set`](/docs/reference/cli/secrets/set/)). `--file` reads a local file at submit time and writes its bytes to the guest path during boot — convenient for injecting config files without a volume.
+
+:::caution[--secret and --file are ignored when --template is used]
+The server's template-creation path injects only secrets pre-configured on the
+template; request-side `--secret` and `--file` flags are silently dropped
+when `--template` is set. To use these flags, create directly without a
+template. (Tracked: server should either merge or reject these in the
+template path.)
+:::
+
+`--cpus` accepts fractional values (e.g. `0.5`, `1.5`); the host scheduler runs vCPUs as time-shared threads, so fractional allocation maps to "you're entitled to ~N vCPU-seconds per second."
+
+`--hugepages` uses 2MB hugepages for the VM's memory. Boot is faster but disables diff snapshots — every snapshot is a full memory dump. Use it for short-lived sandboxes that don't snapshot, not for long-lived agents.
+
+The `--memory` server default is 1024 MB. The `--cpus` default is 1. Both are capped by the user's per-sandbox limits set via [`bhatti user create`](/docs/reference/cli/admin/user-create/).
+
+## Examples
+
+```bash
+# Smallest possible sandbox
+bhatti create --name dev
+```
+
+```bash
+# Custom resources, env vars, and an init script
+bhatti create --name api \
+  --cpus 2 --memory 2048 \
+  --env NODE_ENV=production,LOG_LEVEL=info \
+  --init "cd /workspace && npm install"
+```
+
+```bash
+# Mount a persistent volume; create the volume first
+bhatti volume create --name workspace --size 5120
+bhatti create --name dev --volume workspace:/workspace
+```
+
+```bash
+# Reference a stored secret as a guest env var
+bhatti secret set OPENAI_KEY sk-...
+bhatti create --name agent --secret OPENAI_KEY
+```
+
+```bash
+# Inject a local config file at boot
+bhatti create --name worker --file ./config.json:/etc/worker/config.json
+```
+
+```bash
+# Use a non-default rootfs image (browser tier with Chromium + Playwright)
+bhatti create --name scraper --image browser
+```
+
+```bash
+# Autonomous agent — never paused, even when idle
+bhatti create --name agent --init "hermes gateway" --keep-hot
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--name <string>` | auto-generated | Sandbox name. Must match `[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}`. |
+| `--cpus <float>` | `1` | Number of vCPUs. Fractional values allowed (e.g. `0.5`). Capped by per-sandbox limit. |
+| `--memory <int>` | `0` (server uses `1024`) | Memory in MB. `0` means use the server default. Capped by per-sandbox limit. |
+| `--disk-size <int>` | `0` (use image size) | Rootfs disk size in MB. `0` means inherit from the base image. |
+| `--env <K=V,K=V>` | — | Environment variables, comma-separated, applied to every command. |
+| `--init <string>` | — | Init script that runs at boot as an attachable session named `init`. Survives the boot path; visible in [`bhatti ps`](/docs/reference/cli/exec/ps/). |
+| `--keep-hot` | `false` | Disable thermal transitions. Use for sandboxes that maintain external connections (websockets, polling agents). |
+| `--hugepages` | `false` | Use 2MB hugepages. Faster boot, no diff snapshots — full snapshot every time. |
+| `--template <name>` | — | Create from a template. Template fields are defaults; flags here override them. |
+| `--image <name>` | — | Rootfs image. Built-in: `minimal`, `browser`, `docker`, `computer`. Or a name from [`bhatti image list`](/docs/reference/cli/images/list/). |
+| `--volume <spec>` | — | Attach a persistent volume. Format: `name:mount[:ro]`. Repeatable. |
+| `--secret <name>` | — | Reference a stored secret by name. Decrypted and exposed as an env var. Repeatable. |
+| `--file <local:guest>` | — | Read a local file and write it to `guest` inside the sandbox at boot. Repeatable. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## Output
+
+Default output is a verbose summary:
+
+```
+sandbox/dev created (1 vCPU, 1024 MB)
+  IP:    192.168.137.42
+  Shell: bhatti shell dev
+```
+
+With `--json`, the full sandbox object is printed.
+
+If a sandbox with the requested name already exists *and is identical*, the server returns the existing record and the CLI prints:
+
+```
+sandbox/dev unchanged (already exists)
+```
+
+This makes `create` safe to re-run from scripts.
+
+## Exit codes
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | Sandbox created, or already existed with the same configuration. |
+| `1` | Validation error, quota exceeded (e.g. `max-sandboxes` reached), name conflict, or boot failure. |
+
+## See also
+
+- [`bhatti list`](/docs/reference/cli/sandbox/list/) — find your sandboxes
+- [`bhatti exec`](/docs/reference/cli/exec/exec/) — run a command in the new sandbox
+- [`bhatti shell`](/docs/reference/cli/exec/shell/) — open an interactive shell
+- [`bhatti destroy`](/docs/reference/cli/sandbox/destroy/) — clean up
+- [API: `POST /sandboxes`](/docs/reference/api/#create-a-sandbox)

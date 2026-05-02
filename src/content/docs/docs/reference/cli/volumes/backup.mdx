@@ -1,0 +1,58 @@
+---
+title: bhatti volume backup
+description: Back up a volume to S3-compatible storage. Requires server backup config.
+sidebar:
+  label: volume backup
+  order: 6
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Back up a persistent volume to S3-compatible storage.
+
+## Synopsis
+
+<Synopsis>bhatti volume backup &lt;volume-name&gt;</Synopsis>
+
+## Description
+
+Compresses (zstd) the volume's ext4 file and uploads it to the S3-compatible bucket configured on the server. Returns a backup record with an ID, size, and S3 key.
+
+The volume **does not** need to be detached for this to run. However, if writes are in flight at backup time, the snapshot may be inconsistent. For a guaranteed-consistent backup, stop the sandbox first:
+
+```bash
+bhatti stop dev          # detaches volume, flushes guest writes
+bhatti volume backup workspace
+bhatti start dev         # resume
+```
+
+Requires a `backup` block in the server's `config.yaml`. Without it, the API returns `501` with `backup not configured — add backup section to config.yaml`. See [Configuration: backup](/docs/reference/config/#backup).
+
+Backups are stored under the per-user S3 prefix configured by the server. Restore with [`bhatti volume restore`](/docs/reference/cli/volumes/restore/).
+
+## Examples
+
+```bash
+bhatti volume backup workspace
+```
+
+```text
+backup bk_a1b2c3d4 created (workspace, 5234567890 bytes)
+```
+
+```bash
+# JSON for scripting (capture the ID for later restore)
+backup_id=$(bhatti volume backup workspace --json | jq -r .id)
+echo "backed up: $backup_id"
+```
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti volume backup-list`](/docs/reference/cli/volumes/backup-list/) — see existing backups
+- [`bhatti volume restore`](/docs/reference/cli/volumes/restore/) — recover from a backup
+- [`bhatti volume clone`](/docs/reference/cli/volumes/clone/) — local point-in-time copy (no S3, no compression)
+- [API: `POST /volumes/:name/backups`](/docs/reference/api/#backup-a-volume)

@@ -1,0 +1,80 @@
+---
+title: bhatti user create
+description: Create a user with API key and per-user resource limits.
+sidebar:
+  label: user create
+  order: 6
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+import ServerOnly from '../../../../../../components/docs/ServerOnly.astro';
+
+# bhatti user create <ServerOnly />
+
+Create a user with an API key and per-user resource limits.
+
+## Synopsis
+
+<Synopsis>{`sudo bhatti user create --name <name>
+  [--max-sandboxes <n>] [--max-cpus <n>] [--max-memory <MB>]`}</Synopsis>
+
+## Description
+
+Allocates a new user record in the local SQLite database. Each user gets:
+
+- A user ID (`usr_<8-hex>`).
+- An **API key** (`bht_<64-hex>`) — printed once, then only its SHA-256 hash is stored. **Save the key immediately**; it can't be recovered. Use [`user rotate-key`](/docs/reference/cli/admin/user-rotate-key/) if it's lost.
+- A **subnet index** — an integer assigned monotonically. The server uses it to derive a per-user `/24` bridge network for sandbox isolation. You don't need to think about it; it just shows up in `inspect` output.
+- Per-sandbox resource caps (`--max-cpus`, `--max-memory`) and a per-user sandbox count cap (`--max-sandboxes`).
+
+Records the `user.created` event in the audit log.
+
+This is a **server-only** command — it operates directly on `/var/lib/bhatti/state.db`. Runs without the daemon needing to be up, but typically as `sudo` because the data dir is root-owned.
+
+## Examples
+
+```bash
+sudo bhatti user create --name alice
+```
+
+```text
+User created:
+  ID:       usr_a1b2c3d4
+  Name:     alice
+  Subnet:   2
+  API key:  bht_abc123def456...
+
+This key will not be shown again. Save it now.
+
+Quick start:
+  export BHATTI_URL=http://localhost:8080
+  export BHATTI_TOKEN=bht_abc123def456...
+  bhatti create --name my-sandbox
+```
+
+```bash
+# Custom limits
+sudo bhatti user create --name beefy \
+  --max-sandboxes 20 \
+  --max-cpus 8 \
+  --max-memory 16384
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--name <string>` | (required) | Username. Must be unique. |
+| `--max-sandboxes <int>` | `5` | Maximum concurrent sandboxes. |
+| `--max-cpus <int>` | `4` | Maximum vCPUs per sandbox (capped at create time). |
+| `--max-memory <int>` | `4096` | Maximum memory MB per sandbox (capped at create time). |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+`--data-dir` is honoured here when you need to point at a non-default data directory.
+
+## See also
+
+- [`bhatti user list`](/docs/reference/cli/admin/user-list/)
+- [`bhatti user rotate-key`](/docs/reference/cli/admin/user-rotate-key/) — replace a lost or compromised key
+- [Users & auth](/docs/managing/users/) — broader narrative on multi-tenant setup

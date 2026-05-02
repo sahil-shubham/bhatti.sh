@@ -1,0 +1,68 @@
+---
+title: bhatti volume clone
+description: Make a point-in-time copy of a volume. Source must be detached.
+sidebar:
+  label: volume clone
+  order: 5
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Make a point-in-time copy of a persistent volume.
+
+## Synopsis
+
+<Synopsis>bhatti volume clone &lt;source-name&gt; --name &lt;new-name&gt;</Synopsis>
+
+## Description
+
+Server-side copy of the volume's ext4 file. The clone is independent — writes to the source after the clone do not affect the copy, and vice versa.
+
+The source volume must be **detached** when you clone it. If any sandbox has it mounted, the server returns `409 Conflict`. Detach by stopping or destroying the sandbox using it.
+
+Useful for:
+- Snapshotting before a risky upgrade or migration.
+- Forking a workspace for an experiment.
+- Pre-warming a base volume before stamping out workers.
+
+## Examples
+
+```bash
+# Snapshot before upgrade
+bhatti stop dev                                # detaches workspace
+bhatti volume clone workspace --name workspace-pre-upgrade
+bhatti start dev
+```
+
+```text
+Cloned workspace → workspace-pre-upgrade
+```
+
+```bash
+# Fork for an experiment
+bhatti volume clone workspace --name workspace-experiment
+bhatti create --name experiment --volume workspace-experiment:/workspace
+```
+
+```bash
+# Source still attached — fails
+bhatti volume clone workspace --name copy
+```
+
+```text
+409 Conflict: source volume is attached — detach before snapshotting
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--name <string>` | (required) | Name for the cloned volume. Must match the standard volume-name pattern. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti volume backup`](/docs/reference/cli/volumes/backup/) — off-site copy via S3 (works while attached, but may be inconsistent)
+- [`bhatti stop`](/docs/reference/cli/sandbox/stop/) — detach by stopping the sandbox using it
+- [API: `POST /volumes/:name/snapshot`](/docs/reference/api/#clone-a-volume)

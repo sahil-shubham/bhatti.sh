@@ -1,0 +1,57 @@
+---
+title: bhatti file write
+description: Write a file into a sandbox from stdin. Atomic, capped at 100 MB.
+sidebar:
+  label: file write
+  order: 2
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Write a file into a sandbox. Reads bytes from stdin and writes them to the absolute `<path>` inside the sandbox.
+
+## Synopsis
+
+<Synopsis>bhatti file write &lt;sandbox&gt; &lt;path&gt;</Synopsis>
+
+## Description
+
+Writes are atomic — the guest agent writes to a temp file, fsyncs it, then renames it over the target. Concurrent readers never see partial content.
+
+Writes are capped at **100 MB** per request. For larger files, split into chunks or attach a [persistent volume](/docs/reference/cli/volumes/) instead.
+
+The CLI doesn't expose `--mode` for setting the file permissions (defaults to `0644`). The underlying [API endpoint](/docs/reference/api/#write-a-file) accepts a `mode=0755` query parameter — use it directly when you need to set a specific mode (e.g. `0700` for keys, `0755` for executables).
+
+## Examples
+
+```bash
+echo 'console.log("hello")' | bhatti file write dev /workspace/app.js
+```
+
+```bash
+# From a local file
+bhatti file write dev /workspace/config.json < ./config.json
+```
+
+```bash
+# Generate and write inline
+date | bhatti file write dev /tmp/last-deploy.txt
+```
+
+```bash
+# Set executable bit via the API directly
+local_token="$BHATTI_TOKEN"
+curl -X PUT "http://localhost:8080/sandboxes/dev/files?path=/usr/local/bin/run.sh&mode=0755" \
+  -H "Authorization: Bearer $local_token" \
+  --data-binary @./run.sh
+```
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti file read`](/docs/reference/cli/files/read/) — opposite direction
+- [`bhatti create --file local:guest`](/docs/reference/cli/sandbox/create/) — inject a file at boot, no separate write call
+- [API: `PUT /sandboxes/:id/files`](/docs/reference/api/#write-a-file)

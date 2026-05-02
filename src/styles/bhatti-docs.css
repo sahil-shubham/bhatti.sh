@@ -96,8 +96,9 @@ nav.sidebar a:hover {
     color: #E4E4E7;
 }
 
-/* Group headings */
-.sidebar-content details > summary,
+/* Top-level group headings (REFERENCE, GETTING STARTED, etc.) — all-caps,
+   tracked, muted. Nested groups inside these get the more subtle treatment
+   below so they don't compete visually with the section header. */
 nav.sidebar .top-level > li > details > summary {
     font-size: 0.8125rem;
     text-transform: uppercase;
@@ -110,6 +111,17 @@ nav.sidebar .top-level > li + li {
     border-top: 1px solid #27272A;
 }
 
+/* Nested groups (e.g. "Sandbox" inside REFERENCE). Sentence case, normal
+   tracking, sits at the same visual weight as a regular sidebar link so the
+   collapsible chevron does the work of distinguishing it. */
+nav.sidebar .top-level details details > summary {
+    font-size: 0.875rem;
+    text-transform: none;
+    letter-spacing: normal;
+    color: #D4D4D8;
+    font-weight: 500;
+}
+
 /* ── Code blocks ──────────────────────────────────────────────────── */
 
 .expressive-code pre {
@@ -120,6 +132,61 @@ nav.sidebar .top-level > li + li {
 
 .expressive-code .frame {
     border-radius: 4px;
+}
+
+/* Copy-to-clipboard button: subtle but always present.
+   Starlight's defaults live in `@layer starlight.components`, so unlayered
+   rules here win the cascade without needing !important. */
+.expressive-code .copy button {
+    opacity: 1;
+    width: 1.75rem;
+    height: 1.75rem;
+}
+
+.expressive-code .copy button div {
+    opacity: 0.4;
+}
+
+.expressive-code .frame:hover .copy button div,
+.expressive-code .copy button:hover div,
+.expressive-code .copy button:focus-visible div {
+    opacity: 0.85;
+}
+
+/* ── Heading anchor links (permalink) ─────────────────────────────── */
+
+/* Starlight hides the icon at idle (`@layer starlight.content`); these unlayered
+   rules win by cascade. Idle = subtle, hover/focus/copied = accent. */
+.sl-markdown-content .sl-heading-wrapper {
+    --sl-anchor-icon-size: 0.65em;
+}
+
+.sl-markdown-content .sl-anchor-link {
+    opacity: 0.25;
+    color: var(--sl-color-gray-4);
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.sl-markdown-content .sl-heading-wrapper:hover .sl-anchor-link,
+.sl-markdown-content .sl-anchor-link:focus-visible,
+.sl-markdown-content .sl-anchor-link.sl-anchor-copied {
+    opacity: 1;
+    color: var(--sl-color-accent);
+}
+
+/* Brief "copied" tooltip drawn by the inline click handler. */
+.sl-anchor-copied-tooltip {
+    position: absolute;
+    background: var(--sl-color-accent);
+    color: var(--sl-color-black);
+    font-family: var(--sl-font-mono);
+    font-size: 0.625rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 2px;
+    pointer-events: none;
+    transform: translateY(-1.4em);
+    white-space: nowrap;
+    z-index: 10;
 }
 
 /* ── Logo ─────────────────────────────────────────────────────────── */

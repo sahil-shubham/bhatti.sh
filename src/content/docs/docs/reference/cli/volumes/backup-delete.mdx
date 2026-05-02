@@ -1,0 +1,57 @@
+---
+title: bhatti volume backup-delete
+description: Delete a backup from S3 and the local backup list.
+sidebar:
+  label: volume backup-delete
+  order: 9
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Delete a volume backup.
+
+## Synopsis
+
+<Synopsis>bhatti volume backup-delete &lt;volume-name&gt; &lt;backup-id&gt; [-y]</Synopsis>
+
+## Description
+
+Removes the backup record from the server and deletes the corresponding object in S3. Cannot be undone.
+
+By default, prompts for confirmation. In a non-interactive shell without `-y`, the command refuses and exits `1`.
+
+## Examples
+
+```bash
+bhatti volume backup-delete workspace bk_a1b2c3d4
+```
+
+```text
+Delete backup bk_a1b2c3d4? [y/N]: y
+deleted
+```
+
+```bash
+# Non-interactive
+bhatti volume backup-delete workspace bk_a1b2c3d4 -y
+```
+
+```bash
+# Trim to last 7 backups
+bhatti volume backup-list workspace --json \
+  | jq -r 'sort_by(.created_at) | reverse | .[7:][] | .id' \
+  | xargs -I{} bhatti volume backup-delete workspace {} -y
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `-y`, `--yes` | `false` | Skip confirmation. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti volume backup-list`](/docs/reference/cli/volumes/backup-list/)
+- [API: `DELETE /volumes/:name/backups/:id`](/docs/reference/api/#delete-a-backup)

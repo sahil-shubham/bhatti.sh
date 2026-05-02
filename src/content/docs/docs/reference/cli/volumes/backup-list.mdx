@@ -1,0 +1,48 @@
+---
+title: bhatti volume backup-list
+description: List backups for a volume.
+sidebar:
+  label: volume backup-list
+  order: 7
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+List backups for a volume.
+
+## Synopsis
+
+<Synopsis>bhatti volume backup-list &lt;volume-name&gt;</Synopsis>
+
+## Description
+
+Lists backups recorded server-side for the given volume. The backups themselves live in S3; this command shows the metadata (ID, size, creation time) so you can pick one to restore.
+
+If there are no backups, prints `no backups`.
+
+## Examples
+
+```bash
+bhatti volume backup-list workspace
+```
+
+```text
+ID                   SIZE         CREATED
+bk_a1b2c3d4          4998 MB      2026-04-30T03:00:14Z
+bk_e5f6g7h8          5021 MB      2026-04-29T03:00:11Z
+bk_i9j0k1l2          4892 MB      2026-04-28T03:00:09Z
+```
+
+```bash
+# Latest backup ID
+bhatti volume backup-list workspace --json | jq -r 'sort_by(.created_at) | last | .id'
+```
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti volume backup`](/docs/reference/cli/volumes/backup/)
+- [API: `GET /volumes/:name/backups`](/docs/reference/api/#list-volume-backups)

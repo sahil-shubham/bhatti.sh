@@ -1,0 +1,74 @@
+---
+title: bhatti update
+description: Update bhatti. Auto-detects CLI vs server.
+sidebar:
+  label: update
+  order: 4
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Update bhatti to the latest release.
+
+## Synopsis
+
+<Synopsis>{`bhatti update                    # auto-detect: CLI on a client, full update on a server
+sudo bhatti update               # full server update (CLI, kernel, lohar, rootfs)
+sudo bhatti update --tiers all   # also pull additional rootfs tiers
+bhatti update --cli-only         # update just the CLI binary, even on a server`}</Synopsis>
+
+## Description
+
+Downloads `https://bhatti.sh/install` and runs it. The installer auto-detects whether this is a server (config exists at `/etc/bhatti/config.yaml`) or a CLI-only host, and updates accordingly.
+
+**On a CLI-only machine:** updates the `bhatti` binary at `/usr/local/bin/bhatti`. Doesn't need root unless `/usr/local/bin` isn't writable by the user.
+
+**On a server:** updates everything — CLI, Firecracker, lohar, kernel, and any installed rootfs tier images. Only changed components are re-downloaded; unchanged tiers and kernels are skipped.
+
+**`--cli-only`** forces the binary-only update path even on a server. Useful when you want to test a CLI fix without touching kernel/rootfs.
+
+**`--tiers`** takes a comma-separated list (or `all`) of additional rootfs tiers to install (`browser`, `docker`, `computer`). The default install only ships `minimal`; this is how you add more without re-running the full install command.
+
+Server updates require root (Firecracker and `/var/lib/bhatti` are root-owned). The command refuses up front if it detects a server install but the user isn't root, rather than partly-completing then failing inside the install script.
+
+## Examples
+
+```bash
+# CLI host
+bhatti update
+```
+
+```bash
+# Server, default behaviour (full update)
+sudo bhatti update
+```
+
+```bash
+# Server, also pull all tiers
+sudo bhatti update --tiers all
+```
+
+```bash
+# Server, only update the CLI binary
+bhatti update --cli-only
+```
+
+```bash
+# Server, add a single tier
+sudo bhatti update --tiers browser
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--cli-only` | `false` | Update only the CLI binary, even on a server. |
+| `--tiers <list>` | — | Comma-separated rootfs tiers to install, or `all`. Server-only — has no effect on CLI hosts. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti version`](/docs/reference/cli/admin/version/) — check current version + latest release
+- [Self-hosting](/docs/self-hosting/) — initial install
+- [Updating](/docs/updating/) — upgrade and uninstall guide

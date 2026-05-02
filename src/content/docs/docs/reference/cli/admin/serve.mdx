@@ -1,0 +1,62 @@
+---
+title: bhatti serve
+description: Start the bhatti daemon. Requires root and KVM.
+sidebar:
+  label: serve
+  order: 1
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+import ServerOnly from '../../../../../../components/docs/ServerOnly.astro';
+
+# bhatti serve <ServerOnly />
+
+Start the bhatti daemon.
+
+## Synopsis
+
+<Synopsis>sudo bhatti serve</Synopsis>
+
+## Description
+
+Starts the HTTP API listener, the thermal manager, the public proxy (if domain mode or `public_proxy_listen` is configured), the port scanner, and the metrics + event recorders. Recovers any previously running sandboxes from the SQLite database on startup and re-attaches their TAP devices.
+
+Requires:
+- Linux with KVM (`/dev/kvm`)
+- Root, because Firecracker needs it
+- Config at `/etc/bhatti/config.yaml` (or `$BHATTI_CONFIG`)
+- The Firecracker binary, kernel image, and at least one rootfs image present at the paths in the config
+
+Logs are emitted as structured JSON to stdout. Set `BHATTI_LOG_LEVEL=debug` for verbose logging. Most operators run this under systemd; the install script sets up the unit file at `/etc/systemd/system/bhatti.service`.
+
+## Examples
+
+```bash
+# Foreground (development)
+sudo bhatti serve
+```
+
+```bash
+# Under systemd (production)
+sudo systemctl start bhatti
+sudo journalctl -u bhatti -f
+```
+
+```bash
+# Verbose logs
+BHATTI_LOG_LEVEL=debug sudo bhatti serve
+```
+
+## Options
+
+This command takes no flags. Configuration is via `/etc/bhatti/config.yaml`. See [Configuration](/docs/reference/config/).
+
+## Lifecycle
+
+- **Startup:** load config → open store → initialise engine → recover VMs → start servers (API + optional public proxy + optional internal loopback).
+- **Shutdown** (`SIGTERM` / `SIGINT`): drain HTTP, snapshot all running VMs to disk, close store, exit. Snapshots are restored on the next start.
+
+## See also
+
+- [Configuration](/docs/reference/config/)
+- [Self-hosting](/docs/self-hosting/)

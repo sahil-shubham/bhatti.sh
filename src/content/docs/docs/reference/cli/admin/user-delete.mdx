@@ -1,0 +1,68 @@
+---
+title: bhatti user delete
+description: Delete a user. Fails if the user has active sandboxes.
+sidebar:
+  label: user delete
+  order: 9
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+import ServerOnly from '../../../../../../components/docs/ServerOnly.astro';
+
+# bhatti user delete <ServerOnly />
+
+Delete a user.
+
+## Synopsis
+
+<Synopsis>sudo bhatti user delete &lt;name&gt; [-y]</Synopsis>
+
+## Description
+
+Removes the user record. The user's API key stops working immediately.
+
+**Fails if the user has active (non-destroyed) sandboxes.** Destroy them first:
+
+```bash
+sudo bhatti user list                               # find them via the user's sandbox count
+# (server-side — to list a specific user's sandboxes you need the SQL or the user's API key)
+```
+
+Volumes, secrets, snapshots, and images owned by the user remain on disk after the user is deleted (orphaned). A future `--purge` mode could clean these up; for now, manual cleanup is required if you want to reclaim the space.
+
+By default, prompts for confirmation. In a non-interactive shell without `-y`, the command refuses and exits `1`.
+
+Records a `user.deleted` event in the audit log.
+
+## Examples
+
+```bash
+sudo bhatti user delete alice
+```
+
+```text
+Delete user "alice"? [y/N]: y
+deleted user "alice"
+```
+
+```bash
+# Active sandboxes still around
+sudo bhatti user delete alice
+```
+
+```text
+Error: user "alice" has 3 active sandbox(es)
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `-y`, `--yes` | `false` | Skip confirmation. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti user list`](/docs/reference/cli/admin/user-list/)
+- [`bhatti user rotate-key`](/docs/reference/cli/admin/user-rotate-key/) — usually a better answer than delete

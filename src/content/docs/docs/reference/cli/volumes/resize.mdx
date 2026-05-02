@@ -1,0 +1,62 @@
+---
+title: bhatti volume resize
+description: Grow a persistent volume. Cannot shrink.
+sidebar:
+  label: volume resize
+  order: 4
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Grow a persistent volume.
+
+## Synopsis
+
+<Synopsis>bhatti volume resize &lt;name&gt; --size &lt;new-MB&gt;</Synopsis>
+
+## Description
+
+Resizes the underlying ext4 image file to the new size. The new size must be **larger** than the current size — shrinking is not supported.
+
+The volume must be **detached** before resizing. The server returns `409 Conflict` if any sandbox has it mounted. After the resize, attach it again and the new capacity is visible to the guest filesystem on next mount.
+
+## Examples
+
+```bash
+# Was 5120 MB; double it
+bhatti volume resize workspace --size 10240
+```
+
+```text
+resized to 10240MB
+```
+
+```bash
+# Trying to shrink fails
+bhatti volume resize workspace --size 1024
+```
+
+```text
+400 Bad Request: new size (1024MB) must be larger than current size (5120MB)
+```
+
+```bash
+# Volume still attached
+bhatti volume resize workspace --size 10240
+```
+
+```text
+409 Conflict: volume is attached — detach before resizing
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--size <int>` | (required) | New size in MB. Must be larger than the current size. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [API: `POST /volumes/:name/resize`](/docs/reference/api/#resize-a-volume)

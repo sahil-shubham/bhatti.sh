@@ -1,0 +1,73 @@
+---
+title: bhatti share
+description: Generate a one-shot URL that opens an interactive terminal in the browser.
+sidebar:
+  label: share
+  order: 3
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Generate a URL that opens an interactive terminal in the browser. No CLI install or API key needed on the receiver's side.
+
+## Synopsis
+
+<Synopsis>bhatti share &lt;sandbox&gt; [--revoke]</Synopsis>
+
+## Description
+
+Mints a fresh token bound to the sandbox and embeds it in the URL fragment (`#token=...`). The fragment is **not** sent to the server in HTTP request lines, so the token doesn't appear in access logs or referer headers — but anyone with the URL has shell access until the token is revoked.
+
+**Each call invalidates the previous token.** Calling `bhatti share dev` again generates a new URL; the old one stops working. Only one share link is active at a time per sandbox.
+
+**Scope.** A share token grants access *only* to the specific sandbox it was minted for. It is not interchangeable with the user's API key.
+
+**Behaviour in the browser.** The page opens an xterm.js terminal connected via WebSocket; it's a full PTY session, identical to [`bhatti shell`](/docs/reference/cli/exec/shell/). Closing the tab detaches; the session keeps running and scrollback is preserved. Reopening the URL reattaches.
+
+**Revoke** with `--revoke` — the token is deleted server-side and the URL stops working.
+
+## Examples
+
+```bash
+bhatti share dev
+```
+
+```text
+Shell: https://api.bhatti.sh/_shell/a1b2c3d4#token=k3m9x2qr...
+```
+
+```bash
+# JSON for scripting
+bhatti share dev --json
+```
+
+```json
+{
+  "url": "https://api.bhatti.sh/_shell/a1b2c3d4#token=k3m9x2qr...",
+  "token": "k3m9x2qr..."
+}
+```
+
+```bash
+# Revoke
+bhatti share dev --revoke
+```
+
+```text
+Shell access revoked.
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--revoke` | `false` | Delete the active token for this sandbox. The shared URL stops working immediately. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti publish --shell`](/docs/reference/cli/networking/publish/) — preview URL + share URL in one call
+- [`bhatti shell`](/docs/reference/cli/exec/shell/) — terminal-based interactive shell
+- [`bhatti shell`](/docs/reference/cli/exec/shell/) — the CLI counterpart
+- [API: `POST /sandboxes/:id/shell-token`](/docs/reference/api/#mint-a-shell-token)

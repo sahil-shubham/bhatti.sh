@@ -1,0 +1,66 @@
+---
+title: bhatti destroy
+description: Permanently destroy a sandbox and all its data.
+sidebar:
+  label: destroy
+  order: 7
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Permanently destroy a sandbox. Aliased as `bhatti rm`.
+
+## Synopsis
+
+<Synopsis>{`bhatti destroy <sandbox> [-y]
+bhatti rm <sandbox> [-y]`}</Synopsis>
+
+## Description
+
+Kills the Firecracker process, removes the rootfs and snapshot files, releases the IP, deletes the TAP device, and removes the sandbox record from the database. **This cannot be undone.**
+
+Persistent volumes attached to the sandbox are detached but **not** deleted — their data survives. Use [`bhatti volume delete`](/docs/reference/cli/volumes/delete/) to remove a volume. Published URLs are automatically cleaned up.
+
+By default, destroy prompts for confirmation. In a non-interactive shell without `-y`, the command refuses to proceed and exits `1`. Pass `-y` / `--yes` to skip the prompt.
+
+## Examples
+
+```bash
+bhatti destroy dev
+```
+
+```text
+Destroy sandbox "dev"? [y/N]: y
+sandbox/dev destroyed
+```
+
+```bash
+# Non-interactive (CI / scripts)
+bhatti destroy dev -y
+```
+
+```bash
+# Tear down everything you own
+bhatti list --json | jq -r '.[].name' | xargs -I{} bhatti destroy {} -y
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `-y`, `--yes` | `false` | Skip the interactive confirmation. Required for non-interactive use. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## Exit codes
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | Destroyed. |
+| `1` | Sandbox not found, or non-interactive shell without `-y`. |
+
+## See also
+
+- [`bhatti stop`](/docs/reference/cli/sandbox/stop/) — pause without destroying (data preserved)
+- [`bhatti volume delete`](/docs/reference/cli/volumes/delete/) — detached volumes don't go with the sandbox
+- [API: `DELETE /sandboxes/:id`](/docs/reference/api/#destroy-a-sandbox)

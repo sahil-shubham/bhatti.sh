@@ -1,0 +1,55 @@
+---
+title: bhatti completion
+description: Generate shell completion scripts for bash, zsh, or fish.
+sidebar:
+  label: completion
+  order: 5
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Generate a shell completion script.
+
+## Synopsis
+
+<Synopsis>bhatti completion &lt;bash | zsh | fish&gt;</Synopsis>
+
+## Description
+
+Prints the completion script for the requested shell to stdout. Save it to the right place for your shell, restart, and tab-completion is enabled.
+
+**Sandbox-name completion** uses a local cache (`/tmp/bhatti-completions-<uid>`), populated by `create`, `destroy`, and `list`. It never hits the network, so completions are instant and work offline. The cache may be slightly stale right after another machine creates a sandbox; running `bhatti list` refreshes it.
+
+## Examples
+
+### bash
+
+```bash
+# System-wide
+bhatti completion bash | sudo tee /etc/bash_completion.d/bhatti > /dev/null
+
+# Or per-user (no sudo)
+echo 'source <(bhatti completion bash)' >> ~/.bashrc
+```
+
+### zsh
+
+```bash
+bhatti completion zsh > "${fpath[1]}/_bhatti"
+# Or simpler
+echo 'source <(bhatti completion zsh)' >> ~/.zshrc
+```
+
+### fish
+
+```bash
+bhatti completion fish > ~/.config/fish/completions/bhatti.fish
+```
+
+## Options
+
+This command takes no flags besides the positional shell argument.
+
+## See also
+
+- [`bhatti setup`](/docs/reference/cli/admin/setup/) — `setup` detects your shell and prints the right snippet automatically.

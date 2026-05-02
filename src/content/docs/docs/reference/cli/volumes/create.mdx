@@ -1,0 +1,56 @@
+---
+title: bhatti volume create
+description: Create a persistent ext4 volume. Survives sandbox destruction.
+sidebar:
+  label: volume create
+  order: 1
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Create a persistent ext4 volume.
+
+## Synopsis
+
+<Synopsis>bhatti volume create --name &lt;name&gt; --size &lt;MB&gt;</Synopsis>
+
+## Description
+
+Allocates an ext4 filesystem image on the server, owned by the calling user. The volume is unattached at creation; mount it at sandbox creation time with [`--volume name:/mount`](/docs/reference/cli/sandbox/create/).
+
+The volume survives sandbox destruction. Multiple sandboxes can attach the same volume sequentially, but only one sandbox can have it attached at a time (read-only mounts via `name:/mount:ro` are the only way to share live).
+
+## Examples
+
+```bash
+bhatti volume create --name workspace --size 5120
+```
+
+```text
+vol_a1b2c3d4   workspace   5120MB   ready
+```
+
+```bash
+# Attach at sandbox create
+bhatti create --name dev --volume workspace:/workspace
+```
+
+```bash
+# Attach read-only — multiple sandboxes can mount this simultaneously
+bhatti create --name reader --volume workspace:/data:ro
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--name <string>` | (required) | Volume name. Must match `[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}`. |
+| `--size <int>` | (required) | Initial size in MB. Grow later with [`bhatti volume resize`](/docs/reference/cli/volumes/resize/). |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti create --volume`](/docs/reference/cli/sandbox/create/) — attach at boot
+- [`bhatti volume resize`](/docs/reference/cli/volumes/resize/) — grow the volume
+- [API: `POST /volumes`](/docs/reference/api/#create-a-volume)

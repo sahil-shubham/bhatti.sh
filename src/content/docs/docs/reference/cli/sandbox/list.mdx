@@ -1,0 +1,78 @@
+---
+title: bhatti list
+description: List sandboxes you own. Adds a wide format and JSON output.
+sidebar:
+  label: list
+  order: 2
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+List sandboxes owned by the authenticated user. Aliased as `bhatti ls`.
+
+## Synopsis
+
+<Synopsis>{`bhatti list [-o wide]
+bhatti ls [-o wide]`}</Synopsis>
+
+## Description
+
+Returns one row per sandbox with status, thermal state, IP, and the first published URL (if any). The default columns are tuned for fitting in a normal terminal; `-o wide` adds CPUs, memory, disk, and the rootfs image.
+
+Listing does not wake cold sandboxes — the server reads from its database, not from the engines. The `THERMAL` column shows the current state (`hot`, `warm`, `cold`).
+
+As a side effect, `list` refreshes the local sandbox-name completion cache (`/tmp/bhatti-completions-<uid>`). Tab-completing sandbox names will pick up new sandboxes after the first `list` call following a `create` from another machine.
+
+## Examples
+
+```bash
+bhatti list
+```
+
+```text
+NAME                 STATUS     THERMAL  IP
+dev                  running    hot      192.168.137.2
+agent                running    cold     192.168.137.5
+scraper              stopped    -        192.168.137.8
+```
+
+```bash
+bhatti ls -o wide
+```
+
+```text
+NAME                 STATUS     THERMAL  IP               CPUS   MEMORY   DISK     IMAGE
+dev                  running    hot      192.168.137.2    1      1024     0        minimal
+agent                running    cold     192.168.137.5    2      4096     8192     browser
+scraper              stopped    -        192.168.137.8    1      1024     0        minimal
+```
+
+```bash
+# Machine-readable output
+bhatti ls --json | jq '.[] | select(.status == "running") | .name'
+```
+
+```bash
+# When at least one sandbox has a published URL, an extra URL column appears
+bhatti list
+```
+
+```text
+NAME                 STATUS     THERMAL  IP               URL
+api                  running    hot      192.168.137.3    https://api.bhatti.sh
+dev                  running    hot      192.168.137.2
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `-o`, `--output <fmt>` | (default columns) | Output format. Currently only `wide` is supported. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti inspect`](/docs/reference/cli/sandbox/inspect/) — full details for a single sandbox
+- [`bhatti ps`](/docs/reference/cli/exec/ps/) — sessions inside a sandbox
+- [API: `GET /sandboxes`](/docs/reference/api/#list-sandboxes)

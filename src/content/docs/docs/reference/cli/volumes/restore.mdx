@@ -1,0 +1,60 @@
+---
+title: bhatti volume restore
+description: Restore a volume from a backup. Volume must be detached.
+sidebar:
+  label: volume restore
+  order: 8
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Restore a volume from a backup.
+
+## Synopsis
+
+<Synopsis>bhatti volume restore &lt;volume-name&gt; --backup-id &lt;id&gt;</Synopsis>
+
+## Description
+
+Downloads the backup from S3, decompresses it, and overwrites the volume's ext4 file with the backup's contents. **Existing data on the volume is replaced** — there's no merge.
+
+The volume must be **detached** before restoring. The server returns `409 Conflict` if any sandbox has it mounted.
+
+The backup ID comes from [`bhatti volume backup-list`](/docs/reference/cli/volumes/backup-list/). The restore is in-place: the volume keeps its name and any pending attachments resolve once it's done.
+
+## Examples
+
+```bash
+# Find a backup, restore from it
+bhatti stop dev
+bhatti volume backup-list workspace
+bhatti volume restore workspace --backup-id bk_a1b2c3d4
+bhatti start dev
+```
+
+```text
+volume restored from backup bk_a1b2c3d4
+```
+
+```bash
+# Volume still attached
+bhatti volume restore workspace --backup-id bk_a1b2c3d4
+```
+
+```text
+409 Conflict: volume is attached to a sandbox — detach before restoring
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--backup-id <string>` | (required) | The backup to restore from. Get one from [`backup-list`](/docs/reference/cli/volumes/backup-list/). |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti volume backup-list`](/docs/reference/cli/volumes/backup-list/) — find a backup to restore from
+- [`bhatti volume clone`](/docs/reference/cli/volumes/clone/) — make a clone before restoring, just in case
+- [API: `POST /volumes/:name/backups/restore`](/docs/reference/api/#restore-a-volume)

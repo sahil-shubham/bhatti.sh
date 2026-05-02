@@ -1,0 +1,85 @@
+---
+title: bhatti image pull
+description: Pull a public OCI/Docker image and convert it to a bhatti rootfs.
+sidebar:
+  label: image pull
+  order: 2
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+Pull a public image from any OCI-compatible registry. The server fetches the image, flattens its layers, and writes them to an ext4 file usable as a sandbox rootfs.
+
+## Synopsis
+
+<Synopsis>bhatti image pull &lt;ref&gt; [--name &lt;string&gt;] [--auth &lt;user:token&gt;]</Synopsis>
+
+## Description
+
+The pull runs asynchronously on the server. The CLI returns a task ID, then polls `/tasks/<id>` every 2 seconds and prints progress until the task completes or fails. **Press `Ctrl+C` to detach** — the pull continues on the server. Check progress later with `bhatti image list` (the image appears once it's ready).
+
+If you don't pass `--name`, a name is derived from the ref:
+- `python:3.12` → `python-3.12`
+- `node:22-slim` → `node-22-slim`
+- `ghcr.io/myorg/sandbox-base:latest` → `sandbox-base-latest`
+
+`--auth` enables a single-shot HTTP basic auth header (`user:token`). For real private registries with rotating credentials, prefer the [`image import`](/docs/reference/cli/images/import/) flow — `docker pull` handles auth on your machine, then bhatti just receives the tarball.
+
+If the same image was previously pulled with the same content digest, the server returns immediately without re-downloading.
+
+## Examples
+
+```bash
+bhatti image pull python:3.12
+```
+
+```text
+pulling python:3.12 as "python-3.12" (task: tsk_abc123)
+  resolving manifest...
+  downloading layers (45 MB / 142 MB)...
+  flattening to ext4...
+done
+```
+
+```bash
+# Custom name
+bhatti image pull node:22-slim --name node-22
+
+# Detach: press Ctrl+C after seeing the task ID
+bhatti image pull ubuntu:24.04
+^C
+Interrupted. Pull continues on server.
+  Check status: bhatti image list
+```
+
+```bash
+# Use the pulled image
+bhatti create --name py --image python-3.12
+```
+
+## Authentication
+
+For private registries, `--auth` works for simple `user:token` schemes. If the pull fails with `unauthorized` / `403`, the CLI prints a hint suggesting you use `image import` instead:
+
+```text
+This image may require authentication.
+Pull it with Docker locally, then import:
+  docker pull ghcr.io/org/private:latest
+  bhatti image import ghcr.io/org/private:latest
+```
+
+## Options
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `--name <string>` | derived from ref | Image name to register on the server. |
+| `--auth <user:token>` | — | HTTP basic auth credentials for the registry. |
+
+See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti image import`](/docs/reference/cli/images/import/) — local Docker / tarball import (handles private registries via local auth)
+- [`bhatti create --image`](/docs/reference/cli/sandbox/create/) — use the pulled image
+- [API: `POST /images/pull`](/docs/reference/api/#pull-an-image)
+- [API: `GET /tasks/:id`](/docs/reference/api/#poll-an-async-task)

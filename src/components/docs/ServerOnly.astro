@@ -1,0 +1,65 @@
+---
+/**
+ * <ServerOnly> — small inline badge for commands that require root or DB
+ * access on the server (e.g. `bhatti serve`, `bhatti user create`,
+ * `bhatti admin events`, `bhatti image share`).
+ *
+ * Usage:
+ *
+ *   # bhatti user create <ServerOnly />
+ *
+ * The badge sits inline with the heading or description.
+ */
+
+interface Props {
+  /** Override the label (defaults to "server only"). */
+  label?: string;
+}
+
+const { label = "server only" } = Astro.props;
+---
+
+<span class="server-only-badge" title="Requires root or local DB access on the bhatti server">
+  <svg
+    width="11"
+    height="11"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="2" y="3" width="20" height="8" rx="1" />
+    <rect x="2" y="13" width="20" height="8" rx="1" />
+    <line x1="6" y1="7" x2="6.01" y2="7" />
+    <line x1="6" y1="17" x2="6.01" y2="17" />
+  </svg>
+  <span>{label}</span>
+</span>
+
+<style is:global>
+  .server-only-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    font-family: var(--sl-font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: lowercase;
+    color: var(--sl-color-accent);
+    background: var(--sl-color-accent-low);
+    border: 1px solid rgba(249, 115, 22, 0.25);
+    border-radius: 3px;
+    padding: 0.1em 0.45em;
+    vertical-align: 0.15em;
+    margin-inline-start: 0.5em;
+    line-height: 1.4;
+  }
+
+  .server-only-badge svg {
+    flex-shrink: 0;
+  }
+</style>

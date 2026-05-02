@@ -1,0 +1,50 @@
+---
+title: bhatti ps
+description: List active sessions inside a sandbox — init scripts, shells, detached execs.
+sidebar:
+  label: ps
+  order: 3
+---
+
+import Synopsis from '../../../../../../components/docs/Synopsis.astro';
+
+List active sessions inside a sandbox.
+
+## Synopsis
+
+<Synopsis>bhatti ps &lt;sandbox&gt;</Synopsis>
+
+## Description
+
+A *session* is a process the guest agent is tracking — typically because it has a PTY, was started detached, or was launched as the sandbox's `--init` script. Active sessions persist across client disconnections and show up here regardless of whether anyone is attached.
+
+The `init` script (from `bhatti create --init "..."`) appears as a session named `init`. You can attach to it with [`bhatti shell`](/docs/reference/cli/exec/shell/) (passing its session ID via the API) to watch progress.
+
+Sessions without an attached client and without recent I/O are eventually garbage-collected by an idle timer. Active sessions (producing output or accepting input) are never killed by the timer.
+
+## Examples
+
+```bash
+bhatti ps dev
+```
+
+```text
+ID         COMMAND                                  RUNNING  ATTACHED
+init       npm install && npm run dev               true     false
+s1         /bin/zsh -li                             true     true
+s2         ./long-running-worker.sh                 true     false
+```
+
+```bash
+bhatti ps dev --json | jq '.[] | select(.attached == false) | .session_id'
+```
+
+## Options
+
+This command takes only global flags. See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
+
+## See also
+
+- [`bhatti shell`](/docs/reference/cli/exec/shell/) — open or reattach to an interactive session
+- [`bhatti exec --detach`](/docs/reference/cli/exec/exec/) — start a session in the background
+- [API: `GET /sandboxes/:id/sessions`](/docs/reference/api/#list-sessions)
