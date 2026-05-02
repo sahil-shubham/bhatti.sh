@@ -1,0 +1,448 @@
+---
+title: "Decisions & learnings"
+description: "Real bugs, real bad afternoons, and what they taught us. The kind of engineering log most projects don't ship — but the one I'd want to read if I were evaluating bhatti."
+---
+
+Every system has a paper trail of bad afternoons. This page is bhatti's.
+
+The decisions on the other Under-the-Hood pages are summarised at the
+top of each — this page tells the *story* behind a few of them in more
+depth than fits on a how-it-works page. If you're evaluating bhatti for
+production, this is the page I'd read.
+
+The order is roughly chronological with respect to when each problem
+hit me, not by importance.
+
+## The 1-second SYN retransmit
+
+`bhatti create` on a Pi 5 with btrfs takes about 1.2 seconds. About
+**1 second of that** is a single TCP SYN retransmission timeout. I
+spent a long time before I understood why.
+
+The investigation lives in
+[`docs/archive/INVESTIGATION-create-performance.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/INVESTIGATION-create-performance.md).
+Phase-instrumented every step of the create pipeline. Got this:
+
+```
+Phase                Time   What
+─────────────────    ─────  ────
+rootfs_copy           14ms  btrfs reflink clone
+lohar_inject          93ms  loop mount + cp + umount
+network               34ms  IP alloc + TAP + ARP flush
+config_drive          14ms  mke2fs -d
+fc_start (jailer)     21ms  chroot + FC process + socket
+fc_api + InstanceStart 31ms HTTP PUTs + boot API call
+                     ─────
+Host work total:     207ms
+
+TCP SYN wait:       1005ms  ← here
+AUTH + exec:          18ms  Agent responds
+                     ─────
+WaitReady total:    1023ms
+```
+
+The host-side work is 207 ms. The remaining ~1000 ms is the TCP
+SYN-retransmit timer.
+
+What's happening: after `InstanceStart`, the host immediately starts
+polling TCP :1024 with `exec true` to detect when the agent is up.
+The agent isn't up yet — the kernel is still booting. The host
+sends a SYN. No response. Linux's default initial SYN RTO is 1
+second
+([RFC 6298](https://www.rfc-editor.org/rfc/rfc6298),
+`net.ipv4.tcp_syn_retries`,
+`net.ipv4.tcp_synack_retries`). After 1 second, retransmit. By then,
+the agent is up; the second SYN succeeds.
+
+Two parts of the fix that *do* exist in code:
+
+- **Pre-populated permanent ARP entry**
+  ([`pkg/engine/firecracker/create.go:386-395`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/create.go#L386-L395)).
+  Without this, the *first* probe is wasted on ARP resolution
+  (another 1-second penalty). With it, the SYN goes out immediately
+  with the right MAC. See
+  [The ARP trick](/docs/under-the-hood/networking/#the-arp-trick).
+- **Stale ARP flush before allocation**
+  ([`create.go:130-135`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/create.go#L130-L135)).
+  Without this, IP reuse within `gc_stale_time` (60 s) sends SYNs to
+  the dead VM's MAC, also losing seconds.
+
+What's *not* done yet, that we know would help:
+
+- Delay the first WaitReady probe by ~200 ms after `InstanceStart`.
+  Skip the doomed first SYN.
+- Tune the initial SYN RTO via `ip route` on the bridge.
+- Use a faster probe (vsock on cold boot — except vsock has its own
+  problems; see below).
+
+I haven't shipped these because they're optimization for an already-
+acceptable wall-clock. But the existence of a 1-second timer waiting
+for a guest kernel to boot is a real, weird, unlovely thing — and you
+will see it in your benchmarks.
+
+## The rory incident
+
+April 2026. A user's persistent sandbox named `rory` came back from a
+restore with a corrupted virtio ring buffer. The agent was unreachable.
+The VM was wedged. We had to destroy it and lost the working state of
+the sandbox.
+
+Three failures compounded into one bad outcome
+([`docs/archive/PLAN-reliability.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/PLAN-reliability.md),
+[`PLAN-snapshot-reliability-fixes.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/PLAN-snapshot-reliability-fixes.md)):
+
+- **Diff snapshot corruption.** `mem.snap` was a Diff — only dirty
+  pages — and the dirty page bitmap was incomplete. Firecracker
+  tracks dirty pages via KVM's bitmap, but certain virtio device
+  writes happen in Firecracker's userspace device-model code and
+  don't go through KVM. Those writes don't trigger the bitmap.
+  Restoring a Diff snapshot then loads pages from a stale base and
+  any in-flight virtio ring buffer state gets clobbered.
+- **No snapshot verification** — we'd written a corrupt mem file and
+  marked the snapshot as good without checking.
+- **Volume attachment metadata wasn't persisted on snapshot resume**
+  — `vm.Volumes` was empty when a sandbox came back from a named
+  snapshot, so even when we tried to recover, the volumes were
+  unreachable.
+
+The fixes:
+
+- `track_dirty_pages: false` everywhere
+  ([`pkg/engine/firecracker/create.go:307-318`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/create.go#L307-L318)).
+  Every snapshot is now a Full snapshot. ~500 ms slower per snapshot
+  on NVMe; correct in every case. See
+  [Why all snapshots are Full](/docs/under-the-hood/thermal-states/#why-all-snapshots-are-full).
+- `verifySnapshotArtifacts` after every `/snapshot/create`. Wrong size,
+  bad path, corrupted JSON — error out before marking the snapshot good.
+- `vm.Volumes` populated on snapshot resume
+  ([`PLAN-snapshot-reliability-fixes.md` Bug N1](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/PLAN-snapshot-reliability-fixes.md)),
+  with reciprocal `volume_attachments` rows in SQLite.
+
+The audit also found 17 other bugs — race conditions, missing
+defer-close, type assertions that would panic on certain SQLite
+inputs. The `PLAN-reliability.md` covers all of them. v0.7 was the
+release that fixed the entire batch.
+
+The lesson I keep coming back to: **the cost of correctness is much
+smaller than the cost of one lost user sandbox.** Diff snapshots
+saved ~500 ms per snapshot. Losing rory cost a user a working
+state, me a week of debugging, and a release-line of compounding
+bug fixes. Not even close.
+
+## The systemd snapshot/restore problem
+
+I had lohar running as a systemd-managed service for a while. Fresh
+boot worked. Snapshot/restore broke in a way that took a week to
+understand.
+
+The setup: a regular Ubuntu rootfs with systemd as PID 1, lohar
+running as `lohar.service` (`Type=simple`, `Restart=always`). On a
+fresh boot, `systemctl is-system-running` returned `running`, lohar
+accepted connections, `bhatti exec` worked.
+
+Then `bhatti stop` (snapshot to disk) and `bhatti start` (restore).
+
+The restore looked successful: FC's API returned ok, the guest kernel
+resumed, lohar's TCP listener was still bound to port 1024 according
+to `ss -tlnp` from inside the VM. The first `bhatti exec` after restore
+would succeed. Every subsequent exec would hang forever.
+
+What I observed:
+
+- The kernel-level TCP state was fine. Three-way handshake completed,
+  packets visible in `tcpdump`.
+- The connection sat in the kernel's accept queue.
+- The Go runtime — sitting on top of `epoll_wait` — was not waking
+  up. The goroutine blocked on `Accept()` never got scheduled.
+
+I don't have a clean explanation for *why* this happens specifically
+when lohar is a child of systemd, and not when it's PID 1 itself. My
+guess: something about how systemd manages file descriptors, control
+groups, or its own epoll sets across PID 1 leaves the resumed Go
+process holding a poller in a state Go's runtime doesn't recover
+from. That's speculation, not diagnosis.
+
+What I know empirically:
+
+- Reproduced on Firecracker 1.14.0 and 1.15.1.
+- Reproduced with `Restart=no` and `Restart=always`.
+- Lohar as PID 1 (no systemd) — never reproduced, in CI or production.
+
+So lohar stayed PID 1, and we built a [systemctl
+shim](/docs/under-the-hood/lohar-the-blacksmith/#the-systemctl-shim)
+to satisfy the package machinery. **If you've traced this further or
+think the diagnosis is wrong**, please
+[open an issue](https://github.com/sahil-shubham/bhatti/issues). The
+shim works, but real systemd would be less code to maintain.
+
+## Why TCP, not vsock, after restore
+
+Firecracker's vsock implementation is supposed to be the canonical
+host↔guest communication channel. We started there. It works
+perfectly during normal operation. After snapshot/restore, it breaks.
+
+What I see post-restore: vsock connections complete the host-side
+handshake (the `CONNECT <port>` reply succeeds) but never reach the
+guest's vsock listener. From the host, the connection looks
+"connected." From the guest, no `accept()` ever fires. Reads block.
+Writes are accepted by the kernel but the guest never sees them.
+
+Tested with kernel 5.10, 6.1; Firecracker 1.6.0 through 1.14.0. The
+break is consistent. Other Firecracker orchestrators have hit the
+same thing — SlicerVM had to unship their suspend/restore feature
+in v0.1.108
+([`docs/archive/slicer-learnings.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/slicer-learnings.md)).
+
+The fix: use TCP over the TAP network instead. Virtio-net survives
+snapshot/restore cleanly. Lohar listens on both vsock and TCP at
+ports 1024/1025, and the host always uses TCP after restore
+([`pkg/engine/firecracker/lifecycle.go:419`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L419)).
+TCP adds ~0.1 ms of latency over vsock; negligible.
+
+In practice we use TCP for cold boot too, because the simplification
+of "agent client always uses TCP, regardless of state" is worth more
+than the trivial vsock-faster-on-cold-boot saving. The vsock listener
+in lohar is still set up but the host never dials it.
+
+## The Cloudflare Tunnel disconnect
+
+A user reported their `bhatti shell` dropping silently when they ran
+a long-running command through `api.bhatti.sh`
+([`docs/archive/PLAN-shell-sessions.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/PLAN-shell-sessions.md)).
+Screenshot: no error, no "detached" message, no bash prompt — just a
+silent return to the shell on their Mac.
+
+Root cause:
+
+- They ran `bhatti shell rory`, started `hermes gateway` (a daemon
+  that prints a startup banner then waits for events).
+- Cloudflare Tunnel has a WebSocket idle timeout around 100 seconds.
+  No traffic in either direction = connection killed.
+- The CLI's `conn.ReadMessage()` returned an error. The error path
+  was silent — `defer term.Restore()` ran, terminal mode reset, but
+  nothing got printed.
+- `bhatti shell rory` again created a *new* session. The old session
+  was still alive inside the VM with `hermes gateway` running and
+  scrollback accumulating, but there was no way to get back to it.
+
+Three problems compounded:
+
+1. The WebSocket layer didn't have ping/pong keepalives, so idle
+   connections were getting killed by intermediaries.
+2. The CLI didn't print anything on disconnect, so users didn't know
+   what happened.
+3. There was no session reattach. `bhatti shell` always created a new
+   session.
+
+The fix was a long PR
+([`docs/archive/PLAN-shell-sessions.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/PLAN-shell-sessions.md))
+with a 12-bug inventory. The notable ones:
+
+- **WebSocket ping/pong keepalives** every 30 seconds, both client
+  and server.
+- **Concurrent WebSocket write race** — the CLI's main loop and its
+  resize-handling goroutine both wrote to the connection without
+  coordination. Replaced with a single writer goroutine fed by a
+  channel.
+- **Session reattach** — `bhatti shell <name>` now attaches to the
+  most recent live session (if any) rather than always creating new.
+- **Disconnect message** — CLI prints `[disconnected: <reason>;
+  reconnect with bhatti shell <name>]` on the way out.
+- **Scrollback ring buffer thread safety** — was being accessed
+  concurrently without a mutex; reads could get torn.
+
+The takeaway: **production network conditions kill connections that
+look idle to intermediaries.** If you're building over WebSocket,
+ping/pong is not optional. And the user-visible behavior on
+disconnect is part of the API — silently exiting is an outage from
+the user's point of view.
+
+## The public proxy rate-limiter recalibration
+
+The first version of the public proxy used a per-alias token bucket
+with burst 100 and refill 200/min as the primary rate limiter. Logic:
+"each published URL gets its own quota."
+
+Then a real Vite app with hot module reload generated 90+ requests
+on a single page load, exhausted the bucket on the first reload, and
+served 18 of 91 requests as 429s — a blank page on reload.
+
+Documented in
+[`docs/archive/PLAN-public-proxy-ratelimit.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/PLAN-public-proxy-ratelimit.md).
+Two things were wrong:
+
+1. **The aggregation level was wrong.** Standard reverse-proxy practice
+   (nginx `limit_req_zone`, Cloudflare, AWS WAF) is per-source-IP
+   rate limiting. Per-destination is a *secondary* aggregate against
+   distributed attacks, not the primary mechanism. Browsers HMRing
+   are one source IP, not one URL.
+2. **The numbers were too low.** 200 requests/min ≈ 3.3 req/s. A
+   modern bundler-driven page exceeds that during a single load.
+
+The fix: per-source-IP primary limit (much higher burst, much higher
+refill), per-alias as a secondary cap (very high — only catches
+runaway loops), global as a third (host-level safety net).
+
+This is the kind of decision that's hard to get right in advance,
+because the number depends on the workload. We had reasonable defaults
+for an API server. The defaults were wrong for a frontend. The
+calibration came from one user with one Vite app.
+
+## Pure-Go SQLite
+
+The choice was `mattn/go-sqlite3` (CGo binding to the C SQLite library)
+vs `modernc.org/sqlite` (pure-Go translation of SQLite's C code).
+
+The CGo version is faster and more compact. The pure-Go version is
+~10% slower and the binary is ~3 MB larger. For metadata CRUD
+(sandboxes, users, secrets, events), the speed difference is
+irrelevant.
+
+What matters: cross-compilation. Bhatti is built on a Mac and
+deployed to a Pi. With CGo, this requires a cross-compiler toolchain
+(`aarch64-linux-gnu-gcc`), careful library management, and different
+build commands per platform. It also means the binary is dynamically
+linked against `libc` and isn't fully portable across distros.
+
+With pure-Go SQLite,
+`GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build` produces a static
+binary that runs on any Linux. Same binary works on Pi, Hetzner,
+Graviton, an Alpine container, an Ubuntu host, anything.
+
+The 3 MB and 10% are bought, gladly, for the build simplicity.
+
+## Per-user bridges (replacing a single shared bridge)
+
+The first version of bhatti had one Linux bridge — `brbhatti0` — and
+all VMs across all users shared it. Subnet `192.168.137.0/24`. One
+masquerade rule. Simple to operate. *Insecure* once you actually
+have multiple tenants, because at L2, alice's VM could ARP-scan the
+bridge and reach bob's VM directly. Iptables FORWARD rules between
+guests were the only barrier, and a misconfigured rule meant
+cross-tenant traffic.
+
+Per-user bridges
+([`pkg/engine/firecracker/network.go:23-52`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/network.go#L23-L52))
+push the isolation down to the kernel's bridge forwarding. alice's
+VMs are on `brbhatti-1`, bob's on `brbhatti-2`. The kernel doesn't
+forward frames between them. Even if alice's VM is compromised at the
+kernel level, it can only see alice's other VMs.
+
+The migration: `cleanupOldBridge()` runs once on engine startup,
+removes `brbhatti0` and the legacy 192.168.137 NAT rule, and
+existing sandboxes get reattached to per-user bridges on their next
+start. We made the migration silent because the upgrade path needed
+to "just work" for existing single-user deployments.
+
+The lesson: **start with the security model you'll need**, not the
+simplest one that works for now. A bridge-per-tenant is one or two
+extra lines of bridge management; retrofitting tenant isolation is
+a release-cycle of careful migration code.
+
+## Server-side file truncation
+
+Coding agents read files. They almost always truncate — typically to
+the first 2000 lines or 50 KB. We discovered this by watching what
+clients actually did with our `FILE_READ_RESP` data: they'd ask for
+a 100 MB log file and immediately throw away 99.95% of it on the
+client side. We were paying full bandwidth for almost no information.
+
+The fix is small. `FILE_READ_REQ` accepts `offset`, `limit`,
+`max_bytes`. Lohar reads line-by-line with `bufio.Scanner` and stops
+at whichever limit hits first. The response includes the *full* file
+size so the consumer knows whether content was truncated. See
+[wire protocol — file read](/docs/under-the-hood/wire-protocol/#file-read-protocol).
+
+Performance: a truncated read on a 10 K-line file is about 4.5×
+faster at p50 than a full read of the same file. For larger files,
+proportionally bigger.
+
+Why not `head -n` via exec? Fork-exec, pipe setup, shell argument
+parsing — all of that is overhead the file protocol path skips. A
+1 KB file read takes about 472 µs in the benchmark; the equivalent
+exec is more like 1 ms. For a coding agent that does hundreds of
+file reads per task, this adds up.
+
+The general lesson: **the client knows what it wants; tell the
+server.** Even when bandwidth is "free" inside a single host, the
+allocations, copies, and discards still cost.
+
+## Sessions everywhere
+
+Most sandbox systems split exec and shell into different concepts.
+Bhatti unifies them: every TTY exec is a session. There's no separate
+"shell" code path. A shell is just a TTY exec of `/bin/zsh` or
+`/bin/bash`.
+
+Three reasons this fell out of real product needs:
+
+1. **Init scripts need to be attachable.** When you create a sandbox
+   with `--init "npm install && npm run build"`, that command runs
+   as a session named `init`. You can attach to it from the host to
+   watch progress. If exec weren't a session, the init output would
+   be invisible from the host.
+
+2. **Shells need to survive proxy disconnects** (the Cloudflare
+   Tunnel story above).
+
+3. **Snapshot/restore needs to preserve interactive shells.** A
+   shell running a long-running command when the VM is snapshotted
+   should be the same shell after restore. Sessions are the data
+   structure that survives that round-trip.
+
+Trade-off: every TTY session allocates a 64 KB scrollback buffer.
+With 100 concurrent sessions per VM, that's 6.4 MB. We cap at 20
+sessions per VM
+([`cmd/lohar/handler.go:50`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/handler.go#L50))
+which keeps it bounded.
+
+## What I'd do differently
+
+Things I'd revisit if I were starting bhatti from scratch today:
+
+- **Use a real init for the systemctl shim from the start.** I'm
+  reasonably happy with the shim (it's small, it covers the surface
+  Debian's tools actually call), but I went through several rounds
+  of "what about this directive too?" before it stabilized. Looking
+  at it again, I'd start from a small supervisor like
+  [s6-rc](https://www.skarnet.org/software/s6-rc/) and add a thin
+  systemctl-compatible wrapper. The shim would still exist, but the
+  service-supervisor code would be battle-tested rather than home-
+  rolled.
+
+- **Snapshot verification from day one.** I shipped Diff snapshots
+  without verification, and the rory incident is what it cost. The
+  verification logic is ~50 lines. Not having it from the start was
+  a real mistake.
+
+- **Per-source-IP rate limiting on the public proxy from day one.**
+  Per-destination was the wrong default; "match what nginx does" is
+  the boring-and-correct answer.
+
+- **TLS for the agent protocol.** Right now the agent protocol uses
+  a 16-byte hex token over plaintext TCP. The TCP runs on a private
+  bridge that VMs from other users can't reach (per-user bridges
+  enforce this), and the host always initiates so there's no
+  certificate-pinning equivalent on the guest side. Still, TLS would
+  give us defense in depth. Haven't done it yet because the threat
+  model doesn't demand it on a single-host deployment, but it should
+  be on the table for any real multi-host setup.
+
+## Where to go next
+
+If you want to read more like this, the full archive is in
+[`docs/archive/`](https://github.com/sahil-shubham/bhatti/tree/main/docs/archive)
+in the repo. Plans, post-mortems, learnings from other Firecracker
+projects (SlicerVM, fly.io's Sprites), and the migrations that got
+us to v1.7.
+
+- [Architecture](/docs/under-the-hood/architecture/) — how all the
+  pieces fit together
+- [Lohar](/docs/under-the-hood/lohar-the-blacksmith/) — the agent
+  inside every VM
+- [Thermal states](/docs/under-the-hood/thermal-states/) — pause /
+  snapshot / restore in detail
+- [Networking](/docs/under-the-hood/networking/) — bridges, the ARP
+  trick, the kernel `ip=` solve
+- [Wire protocol](/docs/under-the-hood/wire-protocol/) — frames, ports,
+  atomic writes

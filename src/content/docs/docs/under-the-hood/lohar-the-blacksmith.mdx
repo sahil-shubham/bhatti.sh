@@ -1,0 +1,524 @@
+---
+title: "Lohar: the agent inside every VM"
+description: "PID 1, the systemctl shim, sessions, PTY allocation, file operations — what runs inside each sandbox and the design decisions behind it."
+---
+
+PID 1 is the first userspace process the Linux kernel starts. It's
+responsible for mounting filesystems, reaping zombie processes, and ends
+up the parent of every other process in the system. If PID 1 exits, the
+kernel panics. On a normal Linux box, PID 1 is systemd.
+
+In each bhatti microVM, PID 1 is a small Go program called `lohar`
+(लोहार — Hindi for *blacksmith*; it works inside the *bhatti*, the
+furnace). One binary, statically linked. It does the PID 1 init duties,
+listens for the agent protocol over TCP, manages exec sessions and their
+scrollback buffers, handles file operations, and contains a small shim
+that pretends to be `systemctl` and `journalctl` for in-guest callers.
+
+## Design decisions on this page
+
+Four decisions worth understanding before reading the rest:
+
+1. **lohar runs as PID 1, not as a systemd-managed service.**
+   Snapshot/restore broke when lohar ran as a child of systemd, in ways
+   I haven't fully diagnosed. See
+   [Why not real systemd](#why-not-real-systemd).
+2. **systemctl is a shim, and real systemd is pinned out of apt.**
+   Package post-install scripts assume systemctl exists, but installing
+   real systemd alongside the shim breaks the rootfs. The shim covers
+   the surface Debian's tools actually call; the apt pin keeps real
+   systemd from sneaking in. See [The systemctl shim](#the-systemctl-shim).
+3. **Every TTY exec is a session.** Sessions survive client disconnects
+   and snapshot/restore. Without them, a closed laptop, a flaky
+   network, or a Cloudflare Tunnel idle timeout kills your shell. See
+   [Sessions](#sessions).
+4. **File writes are atomic, with `fsync` before `rename`.** The host
+   might snapshot the VM the next millisecond. Without `fsync`, the
+   snapshot can contain a renamed file with zero bytes. See
+   [File operations](#file-operations).
+
+The list isn't exhaustive — smaller decisions (the busybox-style
+multi-call binary, server-side file truncation, the env-var precedence
+chain) are explained in their sections.
+
+## One binary, three names
+
+The first lines of [`cmd/lohar/main.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/main.go#L30-L36):
+
+```go
+switch filepath.Base(os.Args[0]) {
+case "systemctl":
+    runSystemctl(os.Args[1:])
+    return
+case "journalctl":
+    runJournalctl(os.Args[1:])
+    return
+}
+// otherwise: PID 1 init duties
+```
+
+This is the [busybox pattern](https://en.wikipedia.org/wiki/BusyBox#Single_binary):
+one binary, multiple identities, dispatched on `argv[0]`. In the rootfs,
+`/usr/bin/systemctl` and `/usr/bin/journalctl` are symlinks pointing at
+`/usr/local/bin/lohar`
+([`scripts/tiers/minimal.sh:62-63`](https://github.com/sahil-shubham/bhatti/blob/main/scripts/tiers/minimal.sh#L62-L63)).
+The kernel and shell don't care that the destination is the same binary;
+they invoke whatever name they want, and lohar picks the matching code
+path based on what name it was called by.
+
+## Why not real systemd
+
+I had lohar running as a systemd-managed service for a while
+(`Type=simple`, `Restart=always`, with the rootfs unchanged from a
+regular Ubuntu install). On a fresh boot it worked: `systemctl
+is-system-running` returned `running`, lohar accepted connections,
+`bhatti exec` worked.
+
+Then `bhatti stop` (snapshot to disk) and `bhatti start` (restore from
+disk).
+
+The restore itself looked successful: Firecracker's API returned ok, the
+guest kernel resumed, lohar's TCP listener was still bound to port 1024
+according to `ss -tlnp` from inside the VM. The first `bhatti exec` after
+restore would succeed. Every subsequent exec would hang forever.
+
+What I observed:
+
+- The kernel-level TCP state was fine. Three-way handshake completed,
+  packets visible in `tcpdump`.
+- The connection sat in the kernel's accept queue.
+- The Go runtime — sitting on top of `epoll_wait` — was not waking up.
+  The goroutine blocked on `Accept()` never got scheduled.
+
+I don't have a clean explanation for *why* this happens specifically
+when lohar is a child of systemd, and not when it's PID 1 itself. My
+current guess: something about how systemd manages file descriptors,
+control groups, or its own epoll sets across PID 1 leaves the resumed Go
+process holding a poller in a state Go's runtime doesn't recover from.
+That's speculation, not diagnosis.
+
+What I know empirically:
+
+- Reproduced on Firecracker 1.14.0 and 1.15.1.
+- Reproduced with `Restart=no` and `Restart=always`.
+- Lohar as PID 1 (no systemd) — never reproduced, in CI or production.
+
+:::note[If you know more, tell me.]
+This is the design decision I'd most like to revisit. If you've seen the
+same symptom and traced it further, or if you think my diagnosis is
+wrong, please [open an issue](https://github.com/sahil-shubham/bhatti/issues).
+The systemctl shim works, but real systemd would be less code to maintain.
+:::
+
+So lohar stayed PID 1.
+
+## The systemctl shim
+
+The downside of "lohar is PID 1, no systemd" is that package post-install
+scripts assume systemctl exists. Most of Debian's package machinery —
+`deb-systemd-helper`, `deb-systemd-invoke`, `invoke-rc.d`, `policy-rc.d`,
+`/sbin/runlevel` — calls into a chain that ultimately runs
+`systemctl start <unit>`. Without it, a fresh `apt install
+openssh-server` looks like this:
+
+```
+Setting up openssh-server (1:9.6p1-3ubuntu13.5) ...
+invoke-rc.d: could not determine current runlevel
+invoke-rc.d: policy-rc.d denied execution of start.
+ssh.service is a disabled or a static unit, not starting it.
+```
+
+Binary on disk, configuration in place, service never started — and the
+package's "if you can't start, fail" check trips. The fix is to make
+each tool in that chain happy.
+
+The shim ([`cmd/lohar/systemctl.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/systemctl.go))
+is about 1600 lines. It covers the surface that Debian's tools actually
+call (`start`, `stop`, `restart`, `status`, `enable`, `disable`,
+`is-active`, `is-enabled`, `kill`, `daemon-reload`, `show -p`) plus the
+flags they pass (`--no-reload`, `--quiet`, `--system`, `--no-block`,
+`--root=`, `--state=`, `--type=`).
+
+It reads real `.service` files from the standard paths
+(`/etc/systemd/system`, `/usr/lib/systemd/system`, `/lib/systemd/system`)
+and parses the directives that show up in real-world unit files:
+
+- `ExecStart`, `ExecStartPre`, `ExecReload`, `ExecStop`
+- `Type=simple`, `Type=forking`
+- `User=`, `Group=` — drop privileges before exec
+- `Environment=`, `EnvironmentFile=` — merged into the child's environment
+- `Restart=`, `RestartSec=` — auto-restart with backoff
+- `WantedBy=multi-user.target` — picked up by `enable` and our boot
+
+The walkthrough below describes what I observe when running `apt install
+postgresql` inside a sandbox. I haven't verified each step against the
+maintainer scripts of every Debian package, but it matches the chain
+documented in
+[deb-systemd-helper(1)](https://manpages.debian.org/testing/init-system-helpers/deb-systemd-helper.1.en.html)
+and
+[invoke-rc.d(8)](https://manpages.debian.org/testing/init-system-helpers/invoke-rc.d.8.en.html).
+Corrections welcome.
+
+1. apt unpacks the deb.
+2. The maintainer postinst script calls
+   `deb-systemd-helper enable postgresql.service` (this is what
+   `update-rc.d` calls now on systemd hosts).
+3. `deb-systemd-helper` checks whether systemd looks present by stat'ing
+   `/run/systemd/system/`. Lohar creates this empty directory at boot
+   ([`cmd/lohar/main.go:97`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/main.go#L97))
+   so the helper proceeds. Without it, the helper falls back to legacy
+   sysvinit handling and our shim never gets called.
+4. The helper creates
+   `/etc/systemd/system/multi-user.target.wants/postgresql.service` as
+   a symlink. That's how a service is "enabled" — there's no central
+   database, just symlinks in `wants/` directories.
+5. The postinst calls `deb-systemd-invoke start postgresql.service`,
+   which delegates to `invoke-rc.d`.
+6. `invoke-rc.d` runs `/usr/sbin/policy-rc.d` to check whether the
+   action is allowed. Our shim
+   ([`scripts/tiers/minimal.sh:73-78`](https://github.com/sahil-shubham/bhatti/blob/main/scripts/tiers/minimal.sh#L73-L78))
+   exits 0 unconditionally — actions are permitted.
+7. `invoke-rc.d` runs `/sbin/runlevel` to determine the current
+   runlevel. Our shim
+   ([`scripts/tiers/minimal.sh:81-89`](https://github.com/sahil-shubham/bhatti/blob/main/scripts/tiers/minimal.sh#L81-L89))
+   prints `N 5` (multi-user with networking).
+8. `invoke-rc.d` decides everything looks fine and runs
+   `systemctl start postgresql.service`. Our shim reads the unit file,
+   resolves `User=postgres`, sets up logging, drops privileges, and
+   `exec`s the binary.
+9. Postgres comes up. `systemctl status postgresql` queries the running
+   process by reading the pidfile under `/run/bhatti/services/`.
+   `journalctl -u postgresql` reads `/var/log/bhatti/postgresql.log`.
+
+If postgres crashes, the shim's restart logic
+([`cmd/lohar/systemctl.go:745-823`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/systemctl.go#L745-L823))
+restarts it according to `Restart=` and `RestartSec=`. At boot, lohar
+reads `multi-user.target.wants/` and starts each enabled service
+([`startEnabledServices` at `systemctl.go:1318`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/systemctl.go#L1318)).
+
+### What the shim doesn't do
+
+- **Targets** beyond `multi-user.target` and a few well-known names
+  (`sysinit`, `network`, `default`). Anything checking these gets
+  `active`. Anything more specific is a no-op.
+- **Socket activation.** `.socket` units resolve to their associated
+  `.service` and the service is started directly. Fine for sshd, breaks
+  for things that genuinely need lazy socket activation.
+- **Timers** (`.timer` units). If you need scheduled work, install cron.
+- **D-Bus.** You can install `dbus` and the shim will start it as a
+  normal service, but the host doesn't speak DBus to the guest.
+
+## Pinning systemd out
+
+The shim only works if real systemd never gets installed. The trap:
+many useful packages (openssh-server, sudo, postgresql, nginx) declare
+`Recommends: libpam-systemd`. By default, apt installs Recommends. And
+`libpam-systemd` Depends on `systemd`. So one innocent
+`apt install openssh-server` would silently:
+
+- install real systemd
+- install `/bin/systemctl` over our `/usr/bin/systemctl` symlink (PATH
+  resolution prefers `/bin` for some shells)
+- install systemd-resolved, which would overwrite `/etc/resolv.conf`
+  on next service start
+- leave the rootfs in a half-broken state where snapshot/restore
+  fails (the original problem)
+
+The fix is in
+[`scripts/tiers/minimal.sh:34-41`](https://github.com/sahil-shubham/bhatti/blob/main/scripts/tiers/minimal.sh#L34-L41):
+
+```bash
+printf "Package: systemd systemd-sysv systemd-resolved
+Pin: release *
+Pin-Priority: -1
+" > /etc/apt/preferences.d/no-systemd-daemon
+```
+
+`Pin-Priority: -1` tells apt the package is never installable from any
+source. Server packages only Recommend `libpam-systemd` (never Depend),
+so apt's resolver just drops it from the install set and proceeds.
+
+If you build a custom rootfs based on a tier other than `minimal`, this
+pin is inherited because every tier sources `minimal.sh` first.
+
+### Privileged systemctl from a non-root caller
+
+`bhatti exec dev -- systemctl status sshd` runs as the `bhatti` user
+inside the VM. That user can read `.service` files but can't kill a
+process owned by root. The shim handles this with a small in-guest IPC:
+
+- The user-side `systemctl` invocation marshals its request as a
+  [`SystemctlRequest`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/agent/proto/messages.go#L67)
+  and sends it over a Unix socket at `/run/bhatti/systemctl.sock`.
+- PID 1 lohar accepts on that socket, uses
+  [`SO_PEERCRED`](https://man7.org/linux/man-pages/man7/socket.7.html)
+  to learn the caller's UID *from the kernel*, runs the operation as
+  root, and sends back the formatted output.
+- The user-side `systemctl` prints what came back and exits with the
+  matching code.
+
+`SO_PEERCRED` is the trust boundary, not anything in the request payload
+— a non-root caller could otherwise forge a UID claim and get a
+privileged operation done.
+
+## Boot sequence
+
+The kernel command line ends with `init=/usr/local/bin/lohar`. After the
+kernel finishes its own boot, lohar is the first userspace process.
+
+Lohar writes phase markers to `/run/bhatti/boot-timing.txt` as it goes,
+so you can `cat` it inside any sandbox and see exactly where time went.
+A run might look like this:
+
+```
++0ms     start
++2ms     mounts_done
++3ms     lo_up
++8ms     config_applied
++12ms    network_done
++18ms    tcp_listen          ← agent reachable here
++19ms    services_started
++21ms    init_session_started
+```
+
+That's lohar's own clock — the time between PID 1 starting and the agent
+listening. The wall-clock time from `bhatti create` to the daemon
+flipping the sandbox to `running` is dominated by the kernel boot and
+varies with hardware and rootfs. To measure it on your machine,
+[`bench/run.sh`](https://github.com/sahil-shubham/bhatti/blob/main/bench/run.sh)
+runs the full suite.
+
+What each phase does
+([`cmd/lohar/main.go:48`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/main.go#L48)):
+
+1. **Mount filesystems** — `/proc`, `/sys`, `/dev`, `/dev/pts`, `/tmp`,
+   `/run`, `/dev/shm`. The kernel hands you a bare ext4 with none of
+   these.
+2. **Mount cgroup v2** with `+cpu +memory +io +pids` enabled. cgroup v2
+   is needed for in-guest tools that do their own resource accounting
+   — Docker is the most common, but the same applies to anything using
+   cgroup-style limits (containerd, podman, slurmd).
+3. **Bring up `lo`** with raw `ioctl(SIOCSIFFLAGS)`. `iproute2` isn't
+   wired up yet — we're seven milliseconds into PID 1. `eth0` is
+   already up because the kernel processed the `ip=` boot parameter
+   before init ran; see [Networking](/docs/under-the-hood/networking/)
+   for that part of the story.
+4. **Read the per-sandbox config** from a small ext4 image attached as
+   `/dev/vdb`. Apply hostname, DNS, env vars, files, volume mounts.
+   Then unmount and remove the mount point — secrets shouldn't sit on
+   disk after they've been read.
+5. **Install signal handlers, start the zombie reaper.** PID 1 is
+   responsible for reaping orphaned child processes;
+   [`go reapZombies()`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/main.go#L128)
+   does it.
+6. **Start the syslog receiver.** `/dev/log` becomes a Unix datagram
+   socket; lohar parses RFC-3164 messages and routes them to per-service
+   log files under `/var/log/bhatti/`. Anything in the guest using
+   `syslog(3)` (cron, sshd, postgres) writes to a readable log without
+   any extra configuration.
+7. **Listen on `/run/bhatti/systemctl.sock`** for the privileged
+   systemctl IPC described above.
+8. **Listen on TCP :1024 (control) and :1025 (forward).** The host has
+   been polling :1024 since Firecracker started. Now `exec true`
+   succeeds, and the daemon flips the sandbox's status to `running`.
+9. **Start enabled services** from
+   `/etc/systemd/system/multi-user.target.wants/`.
+10. **Run `/etc/bhatti/init.sh`** if it exists (30 s timeout, output to
+    stderr). Useful when you want to bake boot logic into a custom
+    rootfs without forcing every sandbox to specify `--init`.
+11. **Run the `--init` script** from sandbox creation as a TTY session
+    named `init`. Attach with `bhatti shell dev --session init` to
+    watch your provisioning run.
+12. **Block forever.** PID 1 is not allowed to exit.
+
+## Sessions
+
+Every TTY exec in bhatti creates a *session* — a persistent handle to
+the running command, with an ID, a 64 KB scrollback ring buffer, and a
+PTY master file descriptor. Sessions survive client disconnects: the
+process keeps running, output keeps flowing into the scrollback. A
+client reconnecting to the same session ID gets the scrollback replayed,
+then live I/O.
+
+Three reasons this is the default rather than a feature:
+
+1. **Init scripts need to be attachable.** When you create a sandbox
+   with `--init "npm install && npm run build"`, that command runs as
+   a session named `init`. You can `bhatti shell dev --session init`
+   to attach mid-run and see what's happening. If exec weren't a
+   session, the init output would be invisible from the host.
+
+2. **Shells need to survive proxy disconnects.** A real example from
+   `PLAN-shell-sessions.md`: a user ran `bhatti shell rory` through
+   `api.bhatti.sh` (Cloudflare Tunnel) and started `hermes gateway`,
+   a daemon that prints a startup banner then waits for events.
+   Cloudflare Tunnel kills idle WebSocket connections after about 100
+   seconds. The shell dropped, the daemon kept running inside the VM,
+   and the user had no way back. With sessions, reconnecting replays
+   the scrollback and resumes the live PTY.
+
+3. **Snapshot/restore needs to preserve interactive shells.** A shell
+   that's running a long-running command when the VM is snapshotted
+   should be the same shell after restore. Sessions are the data
+   structure that survives that round-trip.
+
+The session registry lives in
+[`cmd/lohar/session.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/session.go).
+Two caps that matter, both per-VM
+([`cmd/lohar/handler.go:49-51`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/handler.go#L49-L51)):
+
+- 50 concurrent connections
+- 20 active sessions
+
+For a normal sandbox, you'll never hit either. Services started by
+`startEnabledServices` are tracked separately and don't count against
+the session cap.
+
+### Scrollback ring buffer
+
+Each session owns a fixed-size 64 KB ring buffer
+([`cmd/lohar/session.go:50`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/session.go#L50)).
+Writes wrap when full, overwriting the oldest data. The buffer's
+`Bytes()` method returns the contents in order — oldest first — so a
+reattaching client sees the same byte sequence the original PTY emitted,
+just truncated to the most recent 64 KB.
+
+Why a fixed size? An interactive shell can produce arbitrary output
+(think `find /` or a chatty test runner). If the buffer grew without
+bound, a forgotten session would eventually OOM the VM. 64 KB is enough
+to replay the last few hundred lines of typical output, which is what
+the "what was happening when I disconnected" use case actually needs.
+
+### PTY allocation
+
+The PTY pair for each TTY session is allocated with raw syscalls
+([`cmd/lohar/tty.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/tty.go)),
+no CGo:
+
+1. Open `/dev/ptmx` (the PTY multiplexor).
+2. `TIOCGPTN` ioctl — get the slave PTY number assigned to this master.
+3. `TIOCSPTLCK` ioctl with `0` — unlock the slave (kernel won't let you
+   open it until you do this).
+4. Open `/dev/pts/<N>` as the slave file.
+
+The child process is started with `Setsid: true` and `Setctty: true`,
+which makes it a new session leader and assigns the slave PTY as its
+controlling terminal — that's what makes Ctrl+C send SIGINT and the
+shell prompt look like a terminal. Window size is applied via
+`TIOCSWINSZ` ioctl on the master whenever the host sends a `RESIZE`
+frame.
+
+## Piped exec (the simpler path)
+
+`bhatti exec dev -- npm install` is *not* a session by default. It's a
+piped exec — stdout and stderr stream back as `STDOUT` / `STDERR`
+frames, the child runs in its own process group, and the connection
+lives until the child exits. Sessions add overhead a one-shot command
+doesn't need.
+
+The lifecycle
+([`cmd/lohar/exec.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/exec.go),
+[`piped_session.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/piped_session.go)):
+
+1. `exec.Command` with `Setpgid: true`. Child gets its own process
+   group, distinct from lohar.
+2. Three pipes (stdin, stdout, stderr) connected to the child.
+3. Two reader goroutines fan stdout and stderr into `STDOUT` / `STDERR`
+   frames. Both push to a single writer goroutine through a channel,
+   which serializes frame writes — concurrent writes would interleave
+   at byte boundaries and corrupt frames on the wire.
+4. Wait for both readers to drain *before* `cmd.Wait()`. Otherwise the
+   `EXIT` frame can race ahead of the last output frame and the host
+   would see the exit code before the last line of output.
+5. `syscall.Sync()` — flush any files the command wrote. The host
+   might snapshot the VM the next millisecond; dirty pages in the
+   guest's page cache aren't part of the FC snapshot.
+6. Send the `EXIT` frame with the integer exit code, close.
+
+If the host kills the connection (you `Ctrl+C`'d the CLI), lohar sends
+`SIGKILL` to the negative PID — kills the entire process group.
+`npm install` spawns Node, which spawns dozens of children; without
+process-group kill, they orphan and keep running.
+
+There's a third mode (`session: true` in the ExecRequest, no TTY) for
+piped sessions with scrollback — fire-and-forget a long-running build,
+get the output streamed when you next attach. The CLI uses this
+internally for `--detach`.
+
+### Environment variable precedence
+
+Every exec inherits a merged environment, applied in this order
+(later wins):
+
+```
+1. defaults                 PATH, TERM, HOME, LANG
+2. config drive env         secrets and env vars set at sandbox creation
+3. per-request env          --env on the exec command, or env in API body
+```
+
+So `bhatti exec dev --env API_KEY=test -- env` will see `API_KEY=test`
+even if a secret with the same name was set on the sandbox. This is
+deliberate: the per-request env wins so you can override secrets in CI
+or locally without rotating them.
+
+## File operations
+
+The agent owns file ops because `cat | exec` is slow, awkward, and
+loses metadata. The frame types
+([`pkg/agent/proto/constants.go:42-49`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/agent/proto/constants.go#L42-L49)):
+
+| Op    | Frame            | Returns |
+|-------|------------------|---------|
+| Read  | `FILE_READ_REQ`  | response with size + mode, then `STDOUT` frames, then `EXIT` |
+| Write | `FILE_WRITE_REQ` | take `STDIN` frames, write atomically, return OK |
+| Stat  | `FILE_STAT_REQ`  | `FileInfo` |
+| Ls    | `FILE_LS_REQ`    | `[]FileInfo` |
+
+Two details worth their own paragraph.
+
+**Atomic writes.** The write path: open `path.bhatti-tmp`, stream the
+content into it, `fsync`, `rename` over the target. POSIX guarantees
+`rename` is atomic on the same filesystem — a process inside the VM
+that's `tail`-ing the file will see either the old content or the new
+content, never a half-written state. The `fsync` before rename is the
+load-bearing part: without it, the rename is metadata-durable but the
+data is still in the guest's page cache, not on the virtio-blk device.
+If the host snapshots the VM between the rename and the kernel's
+periodic flush, the snapshot contains a file that exists with zero
+bytes.
+
+**Server-side truncation.** Coding agents always truncate file reads —
+typically 2000 lines or 50 KB. If we did that on the client side, we'd
+ship 100 MB of log file across the wire just to throw 99.95% of it away.
+Instead, `FILE_READ_REQ` accepts `offset`, `limit`, `max_bytes`
+parameters, and lohar applies them as it reads line by line. The
+response always includes the *full* file size so the consumer can
+detect truncation.
+
+## What lohar isn't
+
+A few things the docs sometimes imply lohar does, that it doesn't:
+
+- **It's not your shell.** Your shell is whatever the rootfs has
+  (usually `/bin/bash`); lohar exec's it.
+- **It's not a service supervisor for arbitrary daemons.** It runs unit
+  files registered through `enable` and its own session children.
+  Daemons that fork-and-detach the old sysvinit way work, but their
+  state isn't fully tracked.
+- **It doesn't reach out to the network on its own.** No telemetry, no
+  phone-home, no update checks. The only outbound TCP from the guest
+  is whatever you run in it.
+
+## Where to go next
+
+- [Architecture overview](/docs/under-the-hood/architecture/) — how
+  lohar fits into the broader system
+- [Thermal states](/docs/under-the-hood/thermal-states/) — what happens
+  to this lohar instance when it goes idle
+- [Networking](/docs/under-the-hood/networking/) — the per-sandbox
+  network setup and how `/dev/vdb` gets there
+- [Wire protocol](/docs/under-the-hood/wire-protocol/) — frame format,
+  frame types, atomic writes
+- [Decisions & learnings](/docs/under-the-hood/decisions/) — the systemd
+  story above, the diff-snapshot incident, and other lessons paid for in
+  real time

@@ -1,0 +1,324 @@
+---
+title: "The Firecracker engine: HTTP API, jailer, rate limits"
+description: "How bhatti talks to Firecracker — the actual API calls during boot, the jailer setup, rate limiter configuration, and the implementation choices behind it."
+---
+
+This page is the lower-level companion to
+[Architecture](/docs/under-the-hood/architecture/). It walks through
+what the Firecracker engine actually does to boot a VM, what HTTP
+calls it sends, what the jailer setup looks like, and how the rate
+limiters work.
+
+If you're using bhatti, you don't need this page. If you're hacking on
+the engine, extending it, or debugging a weird FC-level failure, this
+is the reference.
+
+## Design decisions on this page
+
+1. **No Firecracker SDK.** We talk directly to FC's Unix-socket
+   HTTP API with ~20 lines of helpers. The reasoning lives on the
+   [Architecture page](/docs/under-the-hood/architecture/#2-we-talk-to-firecracker-directly-no-sdk);
+   this page covers what the API surface actually looks like in code.
+2. **Jailer mode is opt-in via config.** Without jailer, FC runs as
+   root. With jailer, each VM's FC process drops to an unprivileged
+   UID inside a chroot. Single-user dev: skip the jailer. Multi-tenant:
+   turn it on. See [Jailer mode](#jailer-mode).
+3. **Rate limiters are off by default.** Firecracker's per-drive and
+   per-network rate limiters add overhead and aren't useful on a
+   single-user box. We configure them only when you set them. See
+   [Rate limiting](#rate-limiting).
+4. **We never use FC's diff snapshots.** `track_dirty_pages: false`
+   in machine-config means every snapshot is Full. The full reasoning
+   is in [Thermal states](/docs/under-the-hood/thermal-states/#why-all-snapshots-are-full).
+
+## The HTTP adapter
+
+Bhatti's entire FC-API layer is a Unix-socket-aware `http.Client` and
+three helpers. From
+[`pkg/engine/firecracker/fc.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/fc.go):
+
+```go
+func fcAPIClient(socketPath string) *http.Client {
+    return &http.Client{Transport: &http.Transport{
+        DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+            var d net.Dialer
+            return d.DialContext(ctx, "unix", socketPath)
+        },
+    }}
+}
+
+func fcPut(ctx context.Context, c *http.Client, path, body string) error {
+    req, _ := http.NewRequestWithContext(ctx, "PUT",
+        "http://localhost"+path, strings.NewReader(body))
+    req.Header.Set("Content-Type", "application/json")
+    resp, err := c.Do(req)
+    // ... check status, read body on error, done
+}
+```
+
+Plus `fcPatch` and `fcGet` along the same lines. Every Firecracker
+API call goes through one of these three. JSON bodies are built with
+`fmt.Sprintf` from the call site (yes, really — see the boot
+sequence below for what that looks like in practice).
+
+## Boot sequence: what FC sees
+
+A `bhatti create` walks through a fixed sequence of API calls. The
+order matters — FC enforces it (you can't set drives before
+machine-config is set, you can't `InstanceStart` before drives are
+registered).
+
+In `pkg/engine/firecracker/create.go`, each phase emits a `phase()`
+marker so the create timing is visible if you crank logging up. The
+sequence:
+
+```
+1. Write bootArgs to /boot-source
+   PUT /boot-source
+   {"kernel_image_path":".../vmlinux-arm64",
+    "boot_args":"reboot=k panic=1 pci=off 8250.nr_uarts=0
+       init=/usr/local/bin/lohar quiet loglevel=0
+       ip=10.0.1.2::10.0.1.1:255.255.255.0::eth0:off:1.1.1.1:8.8.8.8:"}
+
+2. Configure rootfs drive (read-write)
+   PUT /drives/rootfs
+   {"drive_id":"rootfs","path_on_host":".../rootfs.ext4",
+    "is_root_device":true,"is_read_only":false}
+
+3. Configure machine
+   PUT /machine-config
+   {"vcpu_count":2,"mem_size_mib":1024,
+    "track_dirty_pages":false,"huge_pages":"None"}
+
+4. Configure entropy device (so guests don't block on getrandom())
+   PUT /entropy
+   {"rate_limiter":{"bandwidth":{"size":1024,"one_time_burst":8192,"refill_time":100}}}
+
+5. Configure balloon device
+   PUT /balloon
+   {"amount_mib":0,"deflate_on_oom":true,"stats_polling_interval_s":5}
+
+6. Configure config drive (read-only)
+   PUT /drives/config
+   {"drive_id":"config","path_on_host":".../config.ext4",
+    "is_root_device":false,"is_read_only":true}
+
+7. Configure each volume drive (vdc, vdd, …)
+   PUT /drives/vol-<name>
+   {"drive_id":"vol-<name>","path_on_host":".../vol-<name>.ext4", ...}
+
+8. Configure network interface
+   PUT /network-interfaces/eth0
+   {"iface_id":"eth0","host_dev_name":"tapXXXXXXXX","guest_mac":"02:..."}
+
+9. Configure vsock (still configured even though we don't use it post-boot)
+   PUT /vsock
+   {"vsock_id":"vsock0","guest_cid":3,"uds_path":".../vsock.sock"}
+
+10. Start the instance
+    PUT /actions
+    {"action_type":"InstanceStart"}
+```
+
+Steps 4 (entropy) and 5 (balloon) are easy to miss but matter. Without
+the entropy device, the guest's `getrandom()` blocks at boot waiting
+for entropy that the kernel never gathers (microVMs don't have a
+physical entropy source). Without the balloon, the
+[balloon trick](/docs/under-the-hood/thermal-states/#the-balloon-trick)
+during hot→warm doesn't work.
+
+After `InstanceStart`, the host pre-populates the
+[ARP cache](/docs/under-the-hood/networking/#the-arp-trick) with the
+guest's MAC and starts polling TCP :1024 with `exec true`. When the
+agent answers, the create returns to the user.
+
+## Jailer mode
+
+[Firecracker's Jailer](https://github.com/firecracker-microvm/firecracker/blob/main/docs/jailer.md)
+is the recommended way to run FC in production. It chroots each VM's
+FC process into a private directory, drops to an unprivileged UID/GID,
+and applies a seccomp filter. Bhatti's jailer integration is in
+[`pkg/engine/firecracker/jail.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/jail.go).
+
+When `firecracker_jailer` and `jail_uid`/`jail_gid` are set in
+`config.yaml`, the engine:
+
+1. Creates the chroot at
+   `<data_dir>/jails/firecracker/<sandbox_id>/`.
+2. Resolves all file references — kernel, rootfs, config drive,
+   volumes — to chroot-relative paths. The actual files don't need to
+   move; jailer hardlinks them into the chroot.
+3. Spawns FC as `jailer ... --exec-file /path/to/firecracker --uid
+   <uid> --gid <gid> --id <sandbox_id> --chroot-base-dir
+   <data_dir>/jails ...`.
+4. Talks to FC's API socket through the chroot path.
+
+For snapshot operations under jailer, FC writes the snapshot artifacts
+inside the chroot, then bhatti moves them out atomically after FC
+exits — see
+[`pkg/engine/firecracker/lifecycle.go:84-94`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L84-L94).
+
+Without jailer, FC runs as root with full host visibility. Single-user
+dev: this is fine. Multi-tenant: turn it on. The jailer hardens the
+isolation between FC processes — a kernel exploit that breaks out of
+KVM still has to get past seccomp + UID + chroot before reaching
+anything that matters.
+
+## Rate limiting
+
+Firecracker supports per-drive and per-network bandwidth and IOPS
+rate limiters
+([FC rate limiter docs](https://github.com/firecracker-microvm/firecracker/blob/main/docs/api_requests/patch-pre-boot.md)).
+Bhatti's wrapper is in
+[`pkg/engine/firecracker/engine.go:21-34`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/engine.go#L21-L34):
+
+```go
+type RateLimitConfig struct {
+    NetBandwidthBytes  int64 // bytes/s per direction
+    NetBurstBytes      int64 // one-time burst bytes
+    DiskBandwidthBytes int64 // bytes/s
+    DiskIOPS           int64 // ops/s
+}
+```
+
+Defaults are zero, which means **disabled**. We don't apply rate
+limiters unless you configure them. The reasoning: FC's rate limiter
+is a token-bucket per drive/iface, and on a single-user box it adds
+syscall overhead without any real benefit.
+
+When configured, the limiters apply at the drive and network-interface
+level via FC's API. For drives this is in
+[`create.go:298-302`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/create.go#L298-L302):
+
+```go
+if bw := e.cfg.RateLimits.diskBandwidth(); bw > 0 {
+    iops := e.cfg.RateLimits.diskIOPS()
+    rootfsDrive += fmt.Sprintf(
+        `,"rate_limiter":{"bandwidth":{"size":%d,"refill_time":1000},
+                            "ops":{"size":%d,"refill_time":1000}}`,
+        bw, iops)
+}
+```
+
+`refill_time` is in milliseconds — `1000` means the bucket refills
+once per second. So a `DiskBandwidthBytes: 100_000_000` config gives
+each VM 100 MB/s sustained disk throughput.
+
+For a multi-tenant deployment, useful values:
+
+```yaml
+firecracker:
+  rate_limits:
+    net_bandwidth: 12500000   # 100 Mbps per direction
+    net_burst: 10000000       # 10 MB burst
+    disk_bandwidth: 104857600 # 100 MB/s
+    disk_iops: 10000          # 10K ops/s
+```
+
+These give each VM a hard ceiling so one noisy neighbor can't
+saturate the host's disk or upstream link.
+
+## Listening port discovery
+
+When a request hits a sandbox proxy URL, the daemon needs to know
+which ports the guest has open. Rather than maintain a host-side
+registry that gets stale, bhatti just asks the guest:
+
+```go
+// pkg/engine/firecracker/exec.go:198
+result, _ := ag.Exec(ctx, []string{"ss", "-tln", "--no-header"}, nil, "")
+return parseSSOutput(result.Stdout), nil
+```
+
+This is on-demand: we don't poll. The proxy queries listening ports
+when a request arrives, and the cost is one `exec` (a few
+milliseconds) per query. Guest-side `ss` is fast and accurate — it
+queries the kernel directly rather than walking `/proc/net/tcp`.
+
+The trade-off: this only works on hot VMs. The `ListeningPorts` call
+errors out for warm or cold sandboxes. The public proxy handles this
+by `ensureHot`-ing the sandbox first — if you publish a port and a
+request hits the cold URL, the proxy wakes the VM, queries ports,
+checks that the requested port is in the list, then forwards.
+
+## Recovery: what gets persisted
+
+FC's state machine doesn't survive process restart on its own — you
+get a fresh FC process every time. Bhatti persists the per-VM
+configuration as JSON in the `fc_state` table so the next daemon
+startup can rebuild and resume.
+
+The state captured per VM
+([`pkg/engine/firecracker/helpers.go:120-180`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/helpers.go#L120-L180)):
+
+- `vcpu_count`, `mem_size_mib`
+- `tap_device`, `guest_ip`, `guest_mac`
+- `rootfs_path`, `snap_mem_path`, `snap_vm_path`
+- `volumes` — list of attached volume IDs and mount points
+- `agent_token` — for reattaching to the agent after restore
+- `fc_path_origin` — the original sandbox ID whose paths got baked
+  into the snapshot (matters when you create a sandbox from a named
+  snapshot — see below)
+- `keep_hot`
+
+On daemon startup,
+[`recoverVMs`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/bhatti/main.go)
+reads each row, calls `engine.RestoreVM(...)`, and the engine rebuilds
+the in-memory `VM` struct from the persisted state. If the snapshot
+files exist and the FC process is dead, the VM is marked `stopped` —
+ready to resume on the next API call.
+
+### `fc_path_origin` and snapshot-derived sandboxes
+
+When you create a sandbox from a named snapshot
+(`bhatti snapshot resume <snap> --name new-vm`), FC's snapshot file
+contains absolute paths to the rootfs and config files of the
+*original* sandbox. Those paths don't exist anymore (the original may
+have been destroyed) and even if they did, we'd be operating on the
+wrong files.
+
+The fix in
+[`lifecycle.go:354-380`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L354-L380)
+is to symlink the original paths to the new paths just before
+`/snapshot/load`, then remove the symlinks once FC has the file
+descriptors open. Hacky. Effective. Documented in the commit history
+because it tripped up several rounds of debugging.
+
+In jailer mode, this isn't an issue because all paths are
+chroot-relative — FC only sees its own chroot. The symlink dance is a
+bare-mode concession.
+
+## Snapshot artifact layout
+
+A cold sandbox has, on disk:
+
+```
+<data_dir>/sandboxes/<id>/
+├── rootfs.ext4         CoW copy, may have been written to
+├── config.ext4         the 1MB config drive
+├── vol-<name>.ext4     attached volumes
+├── mem.snap            full memory snapshot (size of VM RAM)
+└── vm.snap             VM state snapshot (small, KB-range)
+```
+
+`mem.snap` is the size of the VM's allocated RAM. If you have a 4 GB
+VM that's been cold for an hour, `mem.snap` is 4 GB on disk. `vm.snap`
+is small — it holds CPU registers, vCPU state, and FC's device-model
+state.
+
+For named snapshots (created via `bhatti snapshot create`), the
+artifacts go to `<data_dir>/snapshots/<user>/<name>/` and include
+copies of the rootfs and volumes alongside `mem.snap` and `vm.snap`,
+so the snapshot is fully self-contained — you can resume it into a
+fresh sandbox even after the original is destroyed.
+
+## Where to go next
+
+- [Architecture](/docs/under-the-hood/architecture/) — the bird's-eye
+  view that this page sits underneath
+- [Thermal states](/docs/under-the-hood/thermal-states/) — what the
+  engine does for `Stop`/`Start`/`Pause`/`Resume`
+- [Networking](/docs/under-the-hood/networking/) — the bridge, TAP,
+  and IP plumbing that the create flow above depends on
+- [Decisions & learnings](/docs/under-the-hood/decisions/) — the
+  no-SDK choice, the rory incident, and other engine-level lessons

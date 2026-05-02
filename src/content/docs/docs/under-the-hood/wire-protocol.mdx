@@ -1,0 +1,427 @@
+---
+title: "The wire protocol"
+description: "Binary framing between host and guest — frame format, frame types, atomic writes, kill semantics, and the choices that shaped it."
+---
+
+All communication between the bhatti host process and a guest agent
+happens over a binary framing protocol. The same protocol runs over
+TCP (production), Unix sockets (tests), and — historically — vsock
+(left over from before we fully moved to TCP). The protocol is
+engine-independent: the entire agent test suite runs on macOS over
+`net.Pipe()` without any VM or root.
+
+## Design decisions on this page
+
+1. **Custom binary framing, not gRPC or HTTP.** The framing layer is
+   ~130 lines of Go. It runs inside a microVM where every dependency
+   is dead weight. gRPC would add protobuf codegen, a runtime, and
+   complexity disproportionate to a protocol with eight frame types.
+   See [Why not HTTP or gRPC](#why-not-http-or-grpc).
+2. **`WriteFrame` does one `Write()` call.** The entire frame is
+   assembled into a single buffer before going to the wire.
+   Otherwise, two goroutines writing concurrent stdout/stderr
+   chunks would interleave at byte boundaries and corrupt frames.
+   See [Atomic frame writes](#atomic-frame-writes).
+3. **AUTH must be the first frame.** If a token is configured, lohar
+   refuses any other frame on a fresh connection until it sees an
+   AUTH frame within 5 seconds. See [Auth](#auth).
+4. **Unknown frame types are skipped, not errored.** A new frame
+   type can be added without breaking older clients. See
+   [Forward compatibility](#forward-compatibility).
+5. **One connection per operation.** Most agent calls open a TCP
+   connection, do their thing, close. TTY sessions and forwards are
+   the exceptions. See [Connection model](#connection-model).
+
+## Frame format
+
+```
+┌────────────────┬───────────┬──────────────────────┐
+│ Length (4B BE) │ Type (1B) │ Payload (N bytes)    │
+└────────────────┴───────────┴──────────────────────┘
+```
+
+**Length** is a 4-byte big-endian unsigned integer. It equals
+`1 + len(Payload)` — the type byte plus the payload. It does *not*
+include the 4-byte length prefix itself.
+
+**Type** is a single byte identifying the frame kind.
+
+**Payload** is variable-length, up to `MaxFrameSize - 1` bytes.
+
+**Maximum frame size** is 1 MB
+([`pkg/agent/proto/constants.go:69`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/agent/proto/constants.go#L69)).
+Both `WriteFrame` and `ReadFrame` enforce this — oversized frames are
+rejected, not truncated.
+
+The encoding is straightforward
+([`pkg/agent/proto/frame.go:10-28`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/agent/proto/frame.go#L10-L28)):
+
+```go
+buf := make([]byte, 4+frameLen)
+binary.BigEndian.PutUint32(buf[0:4], uint32(frameLen))
+buf[4] = msgType
+copy(buf[5:], payload)
+_, err := w.Write(buf)
+```
+
+## Atomic frame writes
+
+The single-buffer approach above isn't an optimization — it's a
+correctness requirement. The agent's piped exec has stdout and stderr
+goroutines writing to the same connection at the same time. If
+`WriteFrame` did three `Write()` calls (length, type, payload), two
+goroutines could interleave at any byte boundary. The kernel would
+deliver something like:
+
+```
+[len=1024][type=STDOUT]    ← goroutine A starts
+[len=512][type=STDERR]     ← goroutine B writes its full frame
+[1024 bytes of stdout]     ← goroutine A finishes, but the order on the wire is now broken
+```
+
+The receiver tries to parse `len=1024 type=STDOUT` plus the next 1024
+bytes — but the next bytes are goroutine B's length prefix, not
+goroutine A's stdout. Frames are corrupt for the rest of the
+connection.
+
+By assembling the whole frame into one buffer and calling `Write()`
+once, the kernel atomically delivers the whole frame to the socket
+buffer (for sizes under the kernel's pipe-buffer limit, which is much
+larger than 1 MB on every platform we run on). Concurrent goroutines
+get their frames serialized end-to-end, never interleaved.
+
+This is why the [piped exec](/docs/under-the-hood/lohar-the-blacksmith/#piped-exec-the-simpler-path)
+goroutines push frames through a single channel to a single writer
+goroutine — defense in depth on top of `WriteFrame`'s atomicity. Both
+levels matter.
+
+## Frame types
+
+All frame type constants are in
+[`pkg/agent/proto/constants.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/agent/proto/constants.go).
+
+### I/O streams
+
+| Type | Byte | Direction | Payload |
+|---|---|---|---|
+| `STDIN`  | `0x01` | host → guest | raw bytes for child's stdin |
+| `STDOUT` | `0x02` | guest → host | child's stdout bytes |
+| `STDERR` | `0x03` | guest → host | child's stderr bytes |
+
+### Control
+
+| Type | Byte | Direction | Payload |
+|---|---|---|---|
+| `RESIZE` | `0x04` | host → guest | `[u16 rows BE][u16 cols BE]` (4 bytes exactly) |
+| `EXIT`   | `0x05` | guest → host | `[i32 exit_code BE]` (4 bytes exactly) |
+| `ERROR`  | `0x06` | either | UTF-8 error message (variable length) |
+| `KILL`   | `0x07` | host → guest | empty payload |
+
+### Exec
+
+| Type | Byte | Direction | Payload |
+|---|---|---|---|
+| `EXEC_REQ` | `0x10` | host → guest | JSON-encoded `ExecRequest` |
+
+The `ExecRequest` shape is in
+[`pkg/agent/proto/messages.go:5-19`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/agent/proto/messages.go#L5-L19):
+`argv`, `env`, `tty`, `rows`, `cols`, `cwd`, `session_id`,
+`max_idle_sec`, `if_detached`, `detach`, `output_file`, `session`.
+Most are optional pointers — nil means "use default."
+
+### Auth
+
+| Type | Byte | Direction | Payload |
+|---|---|---|---|
+| `AUTH` | `0x11` | host → guest | raw token bytes |
+
+If a token is configured (see [Auth](#auth) below), this must be the
+first frame on every connection.
+
+### Port forwarding
+
+| Type | Byte | Direction | Payload |
+|---|---|---|---|
+| `FWD_REQ`  | `0x20` | host → guest | JSON `{"port": 8080}` |
+| `FWD_RESP` | `0x21` | guest → host | JSON `{"status": "ok"}` or `{"status":"error","message":"..."}` |
+
+### Sessions
+
+| Type | Byte | Direction | Payload |
+|---|---|---|---|
+| `EXEC_LIST_REQ`  | `0x30` | host → guest | empty |
+| `EXEC_LIST_RESP` | `0x31` | guest → host | JSON `[]SessionInfo` |
+| `EXEC_KILL`      | `0x32` | host → guest | JSON `{"session_id": "..."}` |
+| `SESSION_INFO`   | `0x33` | guest → host | JSON `SessionInfo` (sent on create or attach, before STDOUT) |
+
+### Activity
+
+| Type | Byte | Direction | Payload |
+|---|---|---|---|
+| `ACTIVITY_REQ`  | `0x40` | host → guest | empty |
+| `ACTIVITY_RESP` | `0x41` | guest → host | JSON `ActivityInfo` (last activity timestamp, attached count) |
+
+### File operations
+
+| Type | Byte | Direction | Payload |
+|---|---|---|---|
+| `FILE_READ_REQ`   | `0x50` | host → guest | JSON `{"path":"...","offset":1,"limit":2000,"max_bytes":51200}` |
+| `FILE_READ_RESP`  | `0x51` | guest → host | JSON `{"size":1234,"mode":"0644"}` |
+| `FILE_WRITE_REQ`  | `0x52` | host → guest | JSON `{"path":"...","mode":"0644","size":1234}` |
+| `FILE_WRITE_RESP` | `0x53` | guest → host | JSON `{"status":"ok"}` |
+| `FILE_STAT_REQ`   | `0x54` | host → guest | JSON `{"path":"..."}` |
+| `FILE_STAT_RESP`  | `0x55` | guest → host | JSON `FileInfo` |
+| `FILE_LS_REQ`     | `0x56` | host → guest | JSON `{"path":"..."}` |
+| `FILE_LS_RESP`    | `0x57` | guest → host | JSON `[]FileInfo` |
+
+### Systemctl IPC (in-guest, not host↔guest)
+
+| Type | Byte | Direction | Payload |
+|---|---|---|---|
+| `SYSTEMCTL_REQ`  | `0x60` | client → lohar (Unix socket) | JSON `SystemctlRequest` |
+| `SYSTEMCTL_RESP` | `0x61` | lohar → client | JSON `SystemctlResponse` |
+
+These are spoken over `/run/bhatti/systemctl.sock` *inside* the guest,
+not over the host↔guest TCP connection. They exist so the systemctl
+shim's user-facing invocation can ask PID 1 lohar to perform
+privileged operations — see
+[Lohar's systemctl IPC](/docs/under-the-hood/lohar-the-blacksmith/#privileged-systemctl-from-a-non-root-caller).
+
+The trust boundary is `SO_PEERCRED` on the socket, **not** anything
+in the request payload. A non-root caller could otherwise forge a UID
+claim and get a privileged operation done.
+
+## Connection model
+
+Two TCP ports inside each VM, two purposes:
+
+- **Port 1024** (control) — exec, sessions, files, activity queries
+- **Port 1025** (forward) — port forwarding / TCP tunneling
+
+`MaxFrameSize` is 1 MB. Both ports also exist as vsock listeners for
+historical reasons, but the host always uses TCP — see
+[the lohar story](/docs/under-the-hood/lohar-the-blacksmith/#why-not-real-systemd)
+for why.
+
+### Control connection lifecycle
+
+One connection per operation. The host dials port 1024, optionally
+sends an `AUTH` frame, sends exactly one request frame, reads
+responses until the operation completes, then the connection closes.
+
+```
+Host                                  Lohar
+ │                                      │
+ ├──TCP connect :1024 ─────────────────►│
+ ├──AUTH frame (if token configured) ──►│
+ ├──EXEC_REQ frame ───────────────────►│
+ │                                      ├──fork/exec child
+ │◄──STDOUT frame──────────────────────┤
+ │◄──STDOUT frame──────────────────────┤
+ │◄──STDERR frame──────────────────────┤
+ │◄──EXIT frame────────────────────────┤
+ └──connection closed──────────────────┘
+```
+
+Exception: TTY sessions keep the connection open for bidirectional
+I/O. The host sends `STDIN` and `RESIZE` frames; the guest sends
+`STDOUT` frames and eventually an `EXIT` frame. If the host
+disconnects, the session detaches (process keeps running, scrollback
+buffer captures output — see
+[Sessions](/docs/under-the-hood/lohar-the-blacksmith/#sessions)).
+
+### Forward connection lifecycle
+
+One connection per tunnel. After the `FWD_REQ`/`FWD_RESP` handshake,
+the framing protocol is **abandoned** — the connection becomes a raw
+bidirectional TCP relay.
+
+```
+Host                                  Lohar                     Target (localhost:8080)
+ │                                      │                          │
+ ├──TCP connect :1025 ─────────────────►│                          │
+ ├──AUTH frame ────────────────────────►│                          │
+ ├──FWD_REQ {"port": 8080} ───────────►│                          │
+ │                                      ├──TCP connect :8080 ─────►│
+ │◄──FWD_RESP {"status": "ok"} ────────┤                          │
+ │                                      │                          │
+ │═══ raw bytes (no framing) ══════════►│═════════════════════════►│
+ │◄═════════════════════════════════════│◄═════════════════════════│
+```
+
+This is what `bhatti exec` doesn't use, but the reverse proxy does.
+When you hit a published URL, the daemon picks up an HTTP request,
+opens a forward connection to the agent, sends `FWD_REQ` for the
+target port, and then pipes the request body through. The agent
+relays it to localhost:port inside the VM, and the response comes
+back the same way.
+
+Forward connections don't have framing because they're proxying
+arbitrary TCP — HTTP, WebSocket, SSH, whatever. Adding framing would
+mean parsing HTTP on the agent side, which we don't want to do.
+
+## Auth
+
+If a token is configured (via the
+[config drive](/docs/under-the-hood/lohar-the-blacksmith/#boot-sequence)
+at boot), the first frame on every connection must be `AUTH` with the
+token as payload. Lohar validates it within a 5-second deadline.
+Invalid or missing auth gets an `ERROR` frame and the connection is
+closed.
+
+The token is generated per-sandbox during `Create()` — 16 random
+bytes, hex-encoded — and injected into the VM via the config drive.
+It's then stored in the host's `AgentClient` and not used for
+anything else. If the daemon restarts and re-reads the agent token
+from `fc_state`, the token survives — VMs across daemon restarts use
+the same token they were created with.
+
+The token comparison uses
+[`subtle.ConstantTimeCompare`](https://pkg.go.dev/crypto/subtle#ConstantTimeCompare)
+([`cmd/lohar/handler.go:69`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/handler.go#L69))
+so a network observer can't time the comparison to figure out a
+prefix of the token.
+
+## File read protocol
+
+File reads support server-side truncation to avoid transferring large
+files when the consumer only needs the first N lines. This matters
+because coding agents always truncate file reads — typically 2000
+lines or 50 KB — and shipping a 100 MB log over the wire just to
+discard 99.95% of it is a waste.
+
+```
+host                          guest
+
+FILE_READ_REQ
+{"path":"/app.log","offset":1,"limit":2000,"max_bytes":51200}
+                              │
+                              ▼
+                          FILE_READ_RESP
+                          {"size":10485760,"mode":"0644"}     ← total file size
+                              │
+                              ▼
+                          STDOUT (line data)
+                          STDOUT (line data)
+                          ...                                   ← stops when limit or max_bytes hit
+                              │
+                              ▼
+                          EXIT code=0
+```
+
+- `offset` — 1-indexed line number to start from (0 or absent =
+  beginning).
+- `limit` — maximum lines to return (0 = unlimited).
+- `max_bytes` — maximum bytes to return (0 = unlimited).
+
+Whichever limit hits first stops the read. Without any truncation
+parameters the full file is streamed. The `FILE_READ_RESP` always
+contains the *total* file size so the consumer knows whether content
+was truncated.
+
+Directories and non-regular files are rejected with an `ERROR` frame.
+File reads are cancellable via context — closing the connection gives
+lohar a broken pipe, stopping the transfer immediately.
+
+## File write protocol
+
+Writes are atomic. Lohar writes to a temp file, fsyncs, then renames
+over the target. Concurrent readers see either the old content or
+the new content, never a half-written state.
+
+```
+host                          guest
+
+FILE_WRITE_REQ
+{"path":"/workspace/app.js","mode":"0644","size":1234}
+                              │
+STDIN (content bytes)         │
+STDIN (content bytes)         │
+...                           │   ← until size bytes sent
+                              │
+                              ▼
+                          FILE_WRITE_RESP
+                          {"status":"ok"}
+```
+
+Negative sizes are rejected (prevents silent data loss from a missing
+`Content-Length` on the HTTP side that would otherwise pass through
+as a default zero). If the connection drops mid-write, the temp file
+is cleaned up.
+
+Why fsync before rename? See
+[the explanation in lohar.md](/docs/under-the-hood/lohar-the-blacksmith/#file-operations) —
+short version: the host might snapshot the VM the next millisecond,
+and dirty pages in the guest's page cache aren't part of the FC
+snapshot. Without fsync, the rename is metadata-durable but the data
+isn't on the virtio-blk device.
+
+## Kill semantics
+
+| Context | Signal | Why |
+|---|---|---|
+| **Piped exec** (non-TTY) | `SIGKILL` to process group | Agents need instant, reliable abort. Child processes (npm → node) must die immediately. |
+| **TTY session disconnect** | None (detach) | Process keeps running, session detaches. Scrollback captures output. |
+| **TTY session KILL frame** | `SIGTERM` to process group | Allows graceful shutdown. If the process handles SIGTERM and survives, the session remains reattachable. |
+| **EXEC_KILL API** | `SIGKILL` to process group | Explicit force-kill by session ID. |
+| **Idle timer expiry** | `SIGKILL` to process group | Session is abandoned, no observer. |
+
+All kill operations target the *process group* (negative PID), not
+just the session leader. This requires `Setpgid: true` on the
+`SysProcAttr` so child processes are in the same group. Without this,
+`npm install` would survive killing the shell that launched it.
+
+## Forward compatibility
+
+`ReadFrame` in the client skips unknown frame types rather than
+erroring. This allows the protocol to be extended without breaking
+existing clients — a new frame type added to lohar won't crash an
+older bhatti host.
+
+The flip side: a new client sending a frame an older agent doesn't
+understand will get its connection closed (the agent ignores the
+frame, but no response comes back). So forward compatibility is
+asymmetric — host upgrades cleanly, but the agent has to be at least
+as new as the most-recent frame type the host wants to use.
+
+In practice the only frame types added since v1.0 are
+`SYSTEMCTL_REQ`/`RESP` (in-guest, not host↔guest) and the file ops
+expanding from read/write to include stat/ls. Both are guarded by
+capability checks before use.
+
+## Why not HTTP or gRPC
+
+The framing layer is ~130 lines of Go
+([`pkg/agent/proto/frame.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/agent/proto/frame.go))
+and handles concurrent stdout/stderr multiplexing, binary file
+transfers, and terminal I/O with zero dependencies.
+
+gRPC would mean:
+
+- protobuf code generation in the build pipeline
+- a runtime dependency inside the VM (heavy for an agent that's
+  supposed to be small and static)
+- complexity disproportionate to a protocol with eight frame types
+- streaming RPCs would handle the stdout/stderr case but with more
+  moving parts than the current channel-serialized writer
+
+HTTP would mean:
+
+- header parsing on every exec
+- chunked encoding negotiation
+- content-type negotiation
+- a connection that's already authenticated and never leaves the host
+  paying the cost of HTTP semantics it doesn't need
+
+The framing protocol is what we'd write if we sat down to design a
+host↔guest protocol from scratch. Length, type, payload. Atomic write
+of the whole thing. That's it.
+
+## Where to go next
+
+- [Lohar](/docs/under-the-hood/lohar-the-blacksmith/) — the agent that
+  speaks this protocol on the guest side
+- [Architecture](/docs/under-the-hood/architecture/) — the bigger
+  picture of host ↔ guest communication
+- [Decisions & learnings](/docs/under-the-hood/decisions/) — including
+  why post-restore vsock didn't work and we ended up TCP-everywhere

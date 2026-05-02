@@ -1,0 +1,457 @@
+---
+title: "Thermal states: hot, warm, cold"
+description: "How sandboxes pause themselves, why all snapshots are Full, the balloon trick, the conntrack trap, the circuit breaker, and what actually happens during restore."
+---
+
+A sandbox you aren't using doesn't keep its CPUs running, doesn't keep
+its memory allocated, and doesn't show up as a process on the host. It
+costs you nothing while it's idle. The next request wakes it.
+
+That's the headline. The rest of this page is how it works, and what
+happens when it doesn't.
+
+If you haven't read it yet, the
+[Firecracker engine internals](/docs/under-the-hood/engine/) page is
+the right pre-read — this page leans heavily on three concepts from
+it: vCPU pause/resume, snapshot create/load, and the virtio-balloon
+device. There's a one-paragraph recap below.
+
+## Background, in three paragraphs
+
+**vCPUs.** Firecracker exposes a `PATCH /vm` API call that pauses or
+resumes the guest's vCPUs. "Paused" means the kernel scheduler stops
+running guest instructions; the FC process stays alive, the memory
+stays allocated, the TAP device stays attached. Resuming is another
+`PATCH /vm`. The whole round-trip takes single-digit milliseconds.
+
+**Snapshots.** FC's `PUT /snapshot/create` writes the VM's full memory
+and its device-model state to two files: `mem.snap` (the size of the
+VM's RAM) and `vm.snap` (small, KB-range). `PUT /snapshot/load` does
+the inverse — reads the files back into a fresh FC process and
+resumes from there. After a successful load + resume, every guest
+process picks up exactly where it was when the snapshot was taken,
+right down to in-flight TCP connections.
+
+**The balloon.** Firecracker exposes a virtio-balloon device. The host
+can tell the guest "give me back N megabytes of your RAM" via
+`PATCH /balloon`. The guest's balloon driver allocates that many pages
+from its page allocator and reports them back; the host marks those
+physical pages free. With `deflate_on_oom` set, the balloon
+automatically deflates when the guest needs the memory back. Bhatti
+uses this on hot→warm to take ~50% of an idle VM's RAM back without
+snapshotting.
+
+## Design decisions on this page
+
+1. **Three thermal states, not two.** Hot/warm/cold gives us a cheap
+   mid-point (vCPUs paused but memory hot) so the common case of "you
+   come back five minutes later" doesn't pay the cost of a snapshot
+   restore. See [The three states](#the-three-states).
+2. **All snapshots are `Full`, not `Diff`.** A real production
+   incident (the rory incident, April 2026) traced corruption to KVM's
+   dirty-page tracking missing host-side virtio writes during Diff
+   snapshots. The fix was to disable `track_dirty_pages` and always
+   snapshot every page. Slower; correct. See
+   [Why all snapshots are Full](#why-all-snapshots-are-full).
+3. **Balloon inflation on hot→warm.** When a VM goes warm, the host
+   inflates the guest's virtio-balloon to take back ~50% of its RAM.
+   The host gets the memory back immediately; on resume,
+   `deflate_on_oom` lets the guest reclaim it. Undocumented elsewhere
+   on the site; meaningful for self-hosting density. See
+   [The balloon trick](#the-balloon-trick).
+4. **Cold check uses host-side timing, not an agent query.** vCPUs are
+   paused while warm — the agent can't respond. Querying it would
+   either time out or wake the VM. So we use the timestamp recorded
+   when we transitioned to warm. See
+   [Why the cold check doesn't talk to the agent](#why-the-cold-check-doesnt-talk-to-the-agent).
+5. **Circuit breaker on a stuck VM.** If the agent fails ten Activity
+   queries in a row (~100 s of silence), the thermal manager
+   force-pauses the VM rather than leaving it hot and unresponsive.
+   See [The circuit breaker](#the-circuit-breaker).
+6. **Three retries before marking unknown.** Snapshot writes can fail
+   on a transient I/O hiccup. We retry. Three failures in a row gets
+   the sandbox marked `unknown` and surfaces an event. See
+   [Snapshot retries](#snapshot-retries).
+
+## The three states
+
+```
+            idle 30 s                 idle 30 min
+   Hot ────────────────────► Warm ──────────────────────────► Cold
+    ▲                       │                             │
+    │                       │                             │
+    │    warm wake ~2 ms    │      cold wake ~42 ms       │
+    └───────────────────────┴─────────────────────────────┘
+                        any API request
+```
+
+| State | Firecracker process | vCPUs | Host RAM | Resume to hot |
+|---|---|---|---|---|
+| **Hot**  | alive       | running | full | — |
+| **Warm** | alive       | paused  | ~50% (balloon inflated) | ~2 ms p50 |
+| **Cold** | dead        | —       | 0 (snapshot on disk) | ~42 ms p50 |
+
+Resume timings are p50 from the homepage benchmark, measured on a
+Hetzner AX102 (Ryzen 9, NVMe). Slower hardware (a Raspberry Pi 5
+with its capped NVMe) gets proportionally slower numbers; the shape
+of the state machine is the same.
+
+Transitions happen automatically. Every API call to a sandbox runs
+through
+[`EnsureHot`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L215-L244)
+first. If the sandbox is warm it resumes in milliseconds. If cold, it
+loads the snapshot, then your operation runs. From an API client's
+perspective, every sandbox is always "running" — the resume is just
+the first ~42 ms of latency on the first call after it went cold.
+
+You can opt out per sandbox with `bhatti create --keep-hot` on
+creation, or `bhatti edit <name> --keep-hot` later. A keep-hot
+sandbox skips thermal
+management entirely
+([`pkg/server/server.go:489-494`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/server/server.go#L489-L494))
+and holds its full RAM. This is for sandboxes that maintain external
+connections — a Slack WebSocket, a Discord gateway, a long-running
+training job that you don't want randomly suspended.
+
+## Hot → Warm
+
+After 30 seconds with no API activity *and* no attached TTY sessions,
+the thermal manager pauses the VM:
+
+1. `PATCH /vm {"state":"Paused"}` to Firecracker's API. The vCPU
+   pause is single-digit milliseconds.
+2. Inflate the virtio-balloon to ~50% of guest memory
+   ([`pkg/server/server.go:626-632`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/server/server.go#L626-L632)).
+   The host gets that RAM back immediately — the balloon driver in
+   the guest hands free pages back to the host.
+3. Record the pause time as the sandbox's last-activity timestamp.
+   The warm-to-cold timer starts from now, not from your last `exec`.
+
+The Firecracker process is still alive, the TAP device is still
+attached, the IP is still allocated. The vCPUs are simply frozen.
+Resuming is another `PATCH /vm` call.
+
+The "no attached TTY sessions" check matters. If someone is in
+`bhatti shell` right now, we don't pause — that's a person staring at
+a terminal. The attached-session count comes from the agent's
+`Activity` response
+([`cmd/lohar/handler.go:35`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/handler.go#L35)),
+which is the only authoritative source.
+
+## Warm → Cold
+
+After 30 minutes warm, the manager takes a Full memory snapshot to disk
+and kills the Firecracker process
+([`pkg/engine/firecracker/lifecycle.go:21-118`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L21-L118)):
+
+1. `PATCH /vm {"state":"Paused"}` (skipped if already paused).
+2. The host runs `sync` *inside the guest* via the agent. Pausing
+   vCPUs doesn't flush dirty pages from the guest's page cache to the
+   virtio-blk device. We learned this the hard way; without it, the
+   snapshot can contain a filesystem state where files exist but
+   their contents aren't on disk yet.
+3. `PUT /snapshot/create {"snapshot_type":"Full","snapshot_path":...,"mem_file_path":...}`.
+   The mem file is the size of the VM's RAM. For a 512 MB VM, that's
+   512 MB on disk and ~620 ms p50 on Hetzner.
+4. Sanity-check the snapshot artifacts (right size, valid). On
+   failure, we error out — a corrupt snapshot is worse than no
+   snapshot.
+5. Kill the Firecracker process (SIGTERM, then SIGKILL after 3 s).
+6. Update the database — sandbox is now `stopped`, thermal is `cold`.
+
+The TAP device is **not** destroyed. The snapshot contains virtio-net
+state that references the TAP device by name; if we delete and recreate
+it, the resumed guest's network stack ends up referencing a TAP that no
+longer exists. So TAPs survive across stop/start cycles
+([`pkg/engine/firecracker/lifecycle.go:108-114`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L108-L114)).
+They're only torn down on `Destroy()`.
+
+### Why all snapshots are Full
+
+Firecracker supports
+[Diff snapshots](https://github.com/firecracker-microvm/firecracker/blob/main/docs/snapshotting/snapshot-support.md):
+only write pages modified since the last snapshot. For an idle VM
+this is 10–50 MB instead of 512 MB, taking ~52 ms instead of ~600 ms.
+We had this enabled.
+
+Then the rory incident. April 2026. A user's persistent sandbox came
+back after a restore with a corrupted virtio ring buffer. The agent was
+unreachable. The VM was wedged. We had to destroy it and lost the
+working state of the sandbox.
+
+Three failures compounded:
+
+- **Diff snapshot corruption.** `mem.snap` was a Diff — only dirty
+  pages — and the dirty page bitmap was incomplete. KVM tracks
+  dirty pages at the level of guest writes, but certain virtio device
+  writes happen in Firecracker's userspace device-model code and
+  don't go through KVM. Those writes don't trigger KVM's dirty page
+  bitmap. Restoring a Diff snapshot then loads pages from a stale
+  base, and any in-flight virtio ring buffer state gets clobbered.
+- **No snapshot verification** — we'd written a corrupt mem file and
+  marked the snapshot as good.
+- **Silent thermal skip** on a different sandbox during the same
+  daemon shutdown that took rory cold, because of an unrelated
+  bug. So we lost a sandbox AND another one didn't get snapshotted.
+
+The full audit and fix plan is in
+[`docs/archive/PLAN-reliability.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/PLAN-reliability.md).
+The relevant fix here is in
+[`pkg/engine/firecracker/create.go:307-318`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/create.go#L307-L318):
+
+```go
+// track_dirty_pages is disabled — all snapshots are Full. This eliminates
+// Diff snapshot corruption (the rory incident) at the cost of ~500ms extra
+// per snapshot. With NVMe + btrfs this is negligible.
+fcPut(ctx, client, "/machine-config", fmt.Sprintf(
+    `{"vcpu_count":%d,"mem_size_mib":%d,"track_dirty_pages":false,"huge_pages":%q}`,
+    vcpuCount, memMB, hugePages))
+```
+
+`track_dirty_pages: false` means every snapshot writes every page. The
+snapshot type field in
+[`pkg/engine/firecracker/lifecycle.go:77`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L77)
+is hardcoded `Full`.
+
+It's slower. A 512 MB Full snapshot is ~620 ms p50 on a Hetzner
+AX102 (Ryzen 9, NVMe). On any modern host disk this is fine, and the
+trade is correctness for speed — which I'll take any day after
+losing rory.
+
+We'll re-enable Diff if and when Firecracker's dirty-page tracking
+covers all write paths. Until then, every snapshot is a complete,
+self-consistent image.
+
+### Snapshot retries
+
+Disks fail in transient ways: a brief I/O stall, a btrfs balance
+running in the background, a momentary contention spike. A snapshot
+that fails once usually succeeds on the second try. The thermal
+manager retries up to three times per cycle before marking the
+sandbox `unknown`
+([`pkg/server/server.go:514-541`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/server/server.go#L514-L541)):
+
+```
+attempt 1 fails → log warning, increment counter, try again next cycle
+attempt 2 fails → log warning, increment counter, try again next cycle
+attempt 3 fails → log error, mark sandbox unknown, record event
+```
+
+Each failure also records a `thermal.snapshot_failed` event with the
+attempt number and error, so an operator can see why
+(`bhatti admin events --type thermal.snapshot_failed`).
+
+### Why the cold check doesn't talk to the agent
+
+Look at
+[`runThermalCycle`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/server/server.go#L496)
+and you'll see the warm→cold transition computed without an agent
+query. That's deliberate.
+
+Agents can't respond when vCPUs are paused. A query would either time
+out — silently skipping the cold check — or trigger a vCPU resume to
+service the request, which defeats the entire reason we paused. So
+the cold check uses the timestamp the manager set when it transitioned
+the sandbox to warm.
+
+It's a small detail. It took an afternoon to figure out why my warm
+sandboxes never went cold.
+
+## Cold → Hot
+
+Any API call to a cold sandbox triggers `EnsureHot`, which calls
+`Start`
+([`pkg/engine/firecracker/lifecycle.go:251-431`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L251-L431)):
+
+1. Recreate the TAP device if it's gone (e.g. after a daemon crash
+   that triggered the orphan cleanup). The TAP comes back attached
+   to the same user bridge it was on before.
+2. Spawn a fresh Firecracker process. Its API socket name is the
+   original plus `.resume` (so we don't collide with the dead one
+   and so the path doesn't grow on repeated cycles — Unix socket
+   paths have a length limit, and we hit it once).
+3. `PUT /snapshot/load`. Crucially with `network_overrides` so FC
+   remaps the TAP device name to whatever it's actually called now:
+
+   ```json
+   {
+     "snapshot_path": "/vm.snap",
+     "mem_backend": {"backend_path": "/mem.snap", "backend_type": "File"},
+     "resume_vm": true,
+     "network_overrides": [{"iface_id": "eth0", "host_dev_name": "tap1234abcd"}]
+   }
+   ```
+
+4. Build a new TCP `AgentClient` over the guest's IP. Vsock state
+   doesn't survive snapshot restore — see
+   [decisions](/docs/under-the-hood/decisions/) — but virtio-net
+   does, so post-restore agents are always reached over TCP.
+5. `WaitReady` — poll `exec true` for up to 30 seconds. If we get a
+   response, the sandbox is hot. If we don't, the sandbox is marked
+   `restoreFailed`.
+
+A successful cold→hot resume is ~42 ms p50 on Hetzner (homepage
+benchmark). Most of that is the snapshot file read; the FC API
+call itself returns in tens of milliseconds. The kernel and the
+guest's processes don't restart — they pick up exactly where they
+were.
+
+### When restore fails
+
+If `PUT /snapshot/load` returns an error, or if the agent doesn't
+respond within 30 seconds, the VM is marked corrupt
+([`pkg/engine/firecracker/lifecycle.go:264-275`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L264-L275)):
+
+```
+Error: sandbox "dev" snapshot is corrupt: <reason> —
+use 'bhatti start --force' to retry or destroy and recreate
+(volume data is safe).
+```
+
+`bhatti start --force <name>` clears the circuit-breaker flag and
+retries once. If the underlying issue (disk full, broken btrfs subvolume) is
+fixed, this gets you back to running. If not, it fails again and you
+keep the flag.
+
+Volume data is on separate ext4 images attached as virtio-blk drives;
+they survive even when the memory snapshot doesn't. So the fix is
+usually: detach volumes, destroy the sandbox, recreate, reattach.
+
+## The balloon trick
+
+This is the part of thermal management most other docs skip. When a VM
+goes warm, the host doesn't just freeze the vCPUs — it tells the
+guest's virtio-balloon driver to claim back ~50% of the VM's memory
+([`pkg/server/server.go:626-632`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/server/server.go#L626-L632)):
+
+```go
+te.BalloonSet(bCtx, sb.EngineID, memMiB/2)
+```
+
+What happens behind that one line:
+
+- The virtio-balloon driver inside the guest allocates pages from the
+  guest's page allocator and tells the host "I don't need these."
+- The host marks those pages free and reclaims the physical memory.
+- A 1 GB VM that was holding 1 GB of host RAM now holds ~500 MB.
+
+On resume, the guest's `deflate_on_oom` setting
+([`pkg/engine/firecracker/create.go:333`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/create.go#L333))
+lets it reclaim balloon pages automatically when something allocates.
+You don't configure this; the guest just gets its memory back as it
+needs it.
+
+For a self-hosted box with twenty sandboxes, this is the difference
+between "I can run twenty VMs" and "I can run forty." It happens
+automatically; you don't configure it.
+
+The flip side: if a guest's working set is genuinely 512 MB and you
+inflate to 256 MB, you'll force pages to the guest's swap (if any) or
+trigger a guest OOM. The 50% default is conservative for typical
+workloads; if you have a memory-hungry VM that you keep_hot anyway,
+this isn't your problem.
+
+## The host-side activity cache
+
+Every API call records `time.Now()` in `s.lastActivity`
+([`pkg/server/server.go:115-122`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/server/server.go#L115-L122)).
+The thermal cycle checks this map before opening a TCP connection to
+the agent. If the cached timestamp is within the warm timeout, the
+agent query is skipped.
+
+Why bother? Because with 50 active sandboxes the cycle runs every 10
+seconds, and naively that's 50 TCP connections every 10 seconds — most
+of them returning "still active." The cache eliminates the connections
+for sandboxes that have had recent API traffic. Only genuinely-idle
+sandboxes get queried.
+
+The activity cache is a heuristic, not the source of truth. The
+agent's own `lastActivity` (an `int64` updated by every exec and
+stdin) is authoritative — but querying it costs a connection. So we
+use the cache as a fast-path negative ("definitely active, skip") and
+fall through to the agent for everything else.
+
+## The circuit breaker
+
+If the agent fails to respond ten times in a row to Activity queries —
+about 100 seconds of silence — the manager force-pauses the VM
+([`pkg/server/server.go:580-602`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/server/server.go#L580-L602)):
+
+```go
+const maxThermalFailures = 10
+```
+
+Pausing is a Firecracker API call; it doesn't need the agent. After
+force-pause we also inflate the balloon, so even a wedged VM can't hog
+memory indefinitely.
+
+This catches the "agent is alive but stuck" case. A user sees their
+sandbox go to `warm` even though they never asked for it; their next
+request wakes it normally. If the agent is genuinely dead, the next
+restore will fail and they'll get the corrupt-snapshot error described
+above.
+
+The threshold of 10 is arbitrary. Real values:
+
+- 10-second tick interval × 10 failures = ~100 seconds of unresponsiveness
+- A normally-loaded agent answers Activity in single-digit milliseconds
+- A real network or scheduling hiccup might lose 1–2 queries; not 10
+
+If you want to monitor this, watch for `thermal.force_pause` events.
+
+## After a snapshot/restore: the conntrack pause
+
+When a VM resumes from cold, the host's iptables conntrack table still
+has stale entries for the guest's IP. Host-initiated connections work
+fine (rule 4 of the iptables setup matches and conntrack replaces the
+stale entries). But *guest-initiated* outbound connections — say, the
+guest does `ping 8.8.8.8` — can hit a stale conntrack entry and the
+SYN gets stuck in retransmit backoff for tens of seconds.
+
+In normal operation this doesn't matter, because the host always
+initiates connections to the agent. But it is a thing you'll notice if
+you're benchmarking outbound throughput right after a resume. An ARP
+flush helps:
+
+```bash
+ip neigh flush dev brbhatti-1
+```
+
+We don't run this automatically because it's only relevant for a
+brief window post-resume and most workloads don't hit it.
+
+## What you'll see in practice
+
+A short field guide.
+
+**`bhatti list` shows `cold` next to your sandbox.** That's normal.
+It's saving you memory. Run any command on it and it'll wake.
+
+**First request after a long pause is slow.** That's a cold wake.
+Subsequent requests are normal speed.
+
+**Sandbox transitioned to warm even though I'm using it.** The check
+requires no attached TTY *and* >30 s since the last API call. Background
+processes inside the VM don't count as activity from the manager's
+perspective. If you have a build running and want it to keep_hot, set
+the flag.
+
+**`bhatti list` shows `unknown`.** Three snapshot retries failed. Look
+at the bhatti server logs and `bhatti admin events --type thermal.snapshot_failed`.
+You can usually `bhatti start --force` once the underlying issue (disk
+full, broken btrfs subvolume) is fixed.
+
+**Resume fails with "snapshot is corrupt".** Volume data is safe;
+destroy and recreate. If this happens twice in a row on the same VM,
+file an issue — we'd like to see it.
+
+## Where to go next
+
+- [How a sandbox boots](/docs/under-the-hood/architecture/) — the cold
+  start path in detail
+- [Networking](/docs/under-the-hood/networking/) — TAP devices,
+  per-user bridges, why TCP survives snapshot/restore
+- [Lohar](/docs/under-the-hood/lohar-the-blacksmith/) — the agent that
+  resumes inside the VM
+- [Decisions & learnings](/docs/under-the-hood/decisions/) — the rory
+  incident in full, plus other paid-for knowledge

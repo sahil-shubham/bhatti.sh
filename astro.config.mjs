@@ -131,11 +131,11 @@ export default defineConfig({
                     label: 'Under the Hood',
                     items: [
                         { label: 'Architecture overview', slug: 'docs/under-the-hood/architecture' },
+                        { label: 'Firecracker engine internals', slug: 'docs/under-the-hood/engine' },
                         { label: 'Lohar: the agent inside every VM', slug: 'docs/under-the-hood/lohar-the-blacksmith' },
                         { label: 'Thermal states', slug: 'docs/under-the-hood/thermal-states' },
                         { label: 'Networking', slug: 'docs/under-the-hood/networking' },
                         { label: 'The wire protocol', slug: 'docs/under-the-hood/wire-protocol' },
-                        { label: 'Firecracker engine internals', slug: 'docs/under-the-hood/engine' },
                         { label: 'Decisions & learnings', slug: 'docs/under-the-hood/decisions' },
                     ],
                 },
