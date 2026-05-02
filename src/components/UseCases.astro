@@ -21,19 +21,19 @@ $ bhatti publish task-42 -p 4000 -a dashboard
         title: "Freeze and resume anything",
         description: "Snapshot captures running processes, memory, TCP connections — not just files. Restore brings the machine back alive exactly where it left off.",
         code: `<span class="c"># Server running, counter at 2</span>
-$ bhatti exec dev -- curl -s localhost:3000
+$ curl -s https://dev.bhatti.sh
 {"visits":2}
 
 <span class="c"># Snapshot everything</span>
 $ bhatti snapshot create dev --name checkpoint
-✓ Saved in 2.0s
+✓ Saved in 600ms
 
 <span class="c"># Break it, restore it</span>
 $ bhatti exec dev -- pkill -f node
 $ bhatti snapshot resume checkpoint --name dev
-✓ Restored in 510ms
+✓ Restored in 80ms
 
-$ bhatti exec dev -- curl -s localhost:3000
+$ curl -s https://dev.bhatti.sh
 {"visits":3}  <span class="c"># process alive, state intact</span>`
     },
     {
@@ -49,10 +49,10 @@ $ bhatti create --name worker-1 --image node-app
 $ bhatti create --name worker-2 --image node-app
 
 $ bhatti list
-<span class="c">NAME       THERMAL   MEMORY    UPTIME</span>
-worker-1   hot       1024MB    2m
-worker-2   hot       1024MB    1m
-build      cold        —       1h`
+<span class="c">NAME       STATUS     THERMAL   IP</span>
+worker-1   running    hot       10.0.1.6
+worker-2   running    hot       10.0.1.7
+build      stopped    cold      10.0.1.4`
     },
 ];
 ---

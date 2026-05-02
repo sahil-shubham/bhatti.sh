@@ -32,21 +32,7 @@ The installer prompts for a rootfs tier:
 | `docker` | + Docker Engine | ~550MB |
 | `computer` | + Full desktop: XFCE, KasmVNC, Chromium | ~1.5GB |
 
-It downloads all components (Firecracker, kernel, rootfs, bhatti, lohar),
-installs the systemd service, and offers to start it:
-
-```
-==> Installing bhatti v1.7.3 (server, minimal tier)
-  ✓ Firecracker 1.14.0 + jailer
-  ✓ bhatti v1.7.3 (2.1s)
-  ✓ lohar (4.1M, 0.8s)
-  ✓ kernel (8.2M, 1.2s)
-  ✓ rootfs minimal (186M, 6.3s)
-
-  Admin API key: bht_abc123...
-  Start bhatti now? [Y/n]: y
-  ✓ bhatti service started
-```
+It downloads all components (Firecracker, kernel, rootfs, bhatti, lohar), installs the systemd service, prints an admin API key (shown once — save it), and offers to start the daemon. Components that haven't changed since a previous install are skipped automatically.
 
 You can also install non-interactively with flags:
 

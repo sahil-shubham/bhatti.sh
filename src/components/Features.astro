@@ -17,15 +17,26 @@ const facts = [
     }
 ];
 
+// Numbers measured on agni-01 (Hetzner AX102, btrfs storage, x86_64, NVMe)
+// running bhatti v1.11.0. Reproduce with `bench/run.sh` in the repo.
+//
+// All rows are CLI wall-clock except "Wake on request" — that's HTTP
+// wall-clock against a published port (curl), since published URLs are
+// HTTP-only. Both methodologies measure on the same host as the daemon,
+// so geographic network latency isn't included; add your RTT for remote use.
+//
+// We show p50 (typical) and p99 (tail) only. p95 was redundant with p99
+// at our sample sizes — same value or one sample apart. The pair P50/P99
+// communicates distribution shape without third-column noise.
 const benchmarks = [
-    { op: "Create a machine", p50: "272ms", p95: "302ms", p99: "302ms" },
-    { op: "Run a command", p50: "1.07ms", p95: "1.58ms", p99: "1.63ms" },
-    { op: "Read a file (1KB)", p50: "503µs", p95: "675µs", p99: "747µs" },
-    { op: "Write a file (1KB)", p50: "1.07ms", p95: "1.22ms", p99: "1.58ms" },
-    { op: "10 commands at once", p50: "12.0ms", p95: "20.0ms", p99: "20.0ms" },
-    { op: "Wake a paused machine", p50: "2.14ms", p95: "11.1ms", p99: "11.1ms" },
-    { op: "Wake a cold machine", p50: "42.2ms", p95: "44.0ms", p99: "44.0ms" },
-    { op: "Snapshot to disk (512MB)", p50: "621ms", p95: "655ms", p99: "655ms" },
+    { op: "Create a machine",          p50: "268ms",   p99: "278ms" },
+    { op: "Snapshot to disk (512MB)",  p50: "505ms",   p99: "577ms" },
+    { op: "Resume from disk",          p50: "75ms",    p99: "77ms" },
+    { op: "Wake on request (cold)",    p50: "60ms",    p99: "76ms" },
+    { op: "Wake on request (warm)",    p50: "4.3ms",   p99: "22.6ms" },
+    { op: "Destroy a machine",         p50: "93ms",    p99: "98ms" },
+    { op: "Run a command",             p50: "12ms",    p99: "17ms" },
+    { op: "20 commands in parallel",   p50: "34ms",    p99: "36ms" },
 ];
 ---
 
@@ -56,7 +67,6 @@ const benchmarks = [
                         <tr>
                             <th>Operation</th>
                             <th>p50</th>
-                            <th>p95</th>
                             <th>p99</th>
                         </tr>
                     </thead>
@@ -65,14 +75,16 @@ const benchmarks = [
                             <tr>
                                 <td class="op-cell">{b.op}</td>
                                 <td>{b.p50}</td>
-                                <td>{b.p95}</td>
                                 <td>{b.p99}</td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
             </div>
-            <p class="text-xs text-muted bench-note">Measured on Hetzner AX102 (AMD Ryzen 9, x86_64, NVMe). Pi 5 numbers in the repo README.</p>
+            <p class="text-xs text-muted bench-note">
+        Hetzner AX102, btrfs, bhatti v1.11.0, CLI on the daemon host.<br />
+        Reproduce: <code>bench/run.sh</code>.
+    </p>
         </div>
     </div>
 </section>

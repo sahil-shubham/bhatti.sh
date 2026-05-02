@@ -117,89 +117,113 @@
         | { type: 'stream'; lines: string[]; interval: number };
 
     // --- The script ---
+    //
+    // Timings here track the bench/results numbers from agni-01
+    // (Hetzner AX102, btrfs, bhatti v1.11.0). Numbers shown to the user
+    // are CLI wall-clock for ops we measured directly; spinner durations
+    // (`ms`) are tuned to roughly match real wall-clock so the animation
+    // doesn't pretend things are faster than they are.
+    // Output strings track the real CLI's printf format strings in
+    // cmd/bhatti/{sandbox,snapshot,image,misc}_cmd.go. Spinner durations
+    // mirror the bench/results numbers from agni-01 (v1.11.0).
     const SCRIPT: Action[] = [
-        // 1. Create a machine
+        // 1. Create a machine. Real: 268ms p50.
         { type: 'cmd', text: 'bhatti create --name dev --cpus 2 --memory 1024' },
-        { type: 'spinner', label: 'Booting...', ms: 2300, done: `Created ${DIM}"dev"${RST} in 2.3s` },
+        { type: 'spinner', label: 'Booting...', ms: 280,
+          done: 'sandbox/dev created (2 vCPU, 1024 MB)' },
+        { type: 'out', text: '  IP:    10.0.1.4' },
+        { type: 'out', text: '  Shell: bhatti shell dev' },
         { type: 'wait', ms: 400 },
 
-        // 2. Start a server inside it
-        { type: 'cmd', text: "bhatti exec dev -- bash -c 'node /workspace/server.js &'" },
-        { type: 'wait', ms: 200 },
-        { type: 'out', text: 'listening on :3000' },
+        // 2. Start a server inside it (detached so exec returns).
+        { type: 'cmd', text: "bhatti exec --detach dev -- node /workspace/server.js" },
+        { type: 'wait', ms: 80 },
+        { type: 'out', text: 'pid: 218' },
+        { type: 'out', text: 'output: /tmp/bhatti-exec-a1b2c3d4.log' },
         { type: 'wait', ms: 500 },
 
-        // 3. Hit it — counter increments in memory
-        { type: 'cmd', text: 'bhatti exec dev -- curl -s localhost:3000' },
+        // 3. Hit it through the publish path — hot, ~2-3ms.
+        { type: 'cmd', text: 'curl -s https://dev.bhatti.sh' },
         { type: 'wait', ms: 80 },
         { type: 'out', text: '{"visits":1}' },
         { type: 'wait', ms: 400 },
 
-        { type: 'cmd', text: 'bhatti exec dev -- curl -s localhost:3000' },
+        { type: 'cmd', text: 'curl -s https://dev.bhatti.sh' },
         { type: 'wait', ms: 80 },
         { type: 'out', text: '{"visits":2}' },
         { type: 'wait', ms: 600 },
 
-        // 4. Snapshot — captures running processes + memory
+        // 4. Snapshot — captures running processes + memory.
         { type: 'comment', text: '# snapshot everything — processes, memory, state' },
         { type: 'cmd', text: 'bhatti snapshot create dev --name checkpoint' },
-        { type: 'spinner', label: 'Snapshotting...', ms: 2000, done: 'Saved in 2.0s (memory + all running processes)' },
+        { type: 'spinner', label: 'Snapshotting...', ms: 600,
+          done: 'checkpoint "checkpoint" created (1024MB)' },
         { type: 'wait', ms: 500 },
 
-        // 5. Kill the server
+        // 5. Kill the server (exec returns silently on exit 0).
         { type: 'cmd', text: 'bhatti exec dev -- pkill -f node' },
         { type: 'wait', ms: 200 },
 
-        { type: 'cmd', text: 'bhatti exec dev -- curl -s localhost:3000' },
+        { type: 'cmd', text: 'curl -s https://dev.bhatti.sh' },
         { type: 'wait', ms: 100 },
-        { type: 'out', text: `${RED}curl: (7) Failed to connect${RST}` },
+        { type: 'out', text: `${RED}curl: (52) Empty reply from server${RST}` },
         { type: 'wait', ms: 800 },
 
-        // 6. Destroy and restore from snapshot — process comes back with its state
+        // 6. Destroy and restore from snapshot — process comes back with state intact.
         { type: 'cmd', text: 'bhatti destroy dev -y' },
-        { type: 'wait', ms: 200 },
-        { type: 'out', text: 'destroyed' },
+        { type: 'wait', ms: 100 },
+        { type: 'out', text: 'sandbox/dev destroyed' },
         { type: 'wait', ms: 300 },
 
+        // Resume from named snapshot creates a NEW sandbox.
+        // Real output is tab-separated: <id>\t<name>\t<ip>.
         { type: 'cmd', text: 'bhatti snapshot resume checkpoint --name dev' },
-        { type: 'spinner', label: 'Restoring...', ms: 500, done: 'Restored in 510ms' },
+        { type: 'spinner', label: 'Restoring...', ms: 80,
+          done: 'a1b2c3d4\tdev\t10.0.1.4' },
         { type: 'wait', ms: 300 },
 
-        { type: 'cmd', text: 'bhatti exec dev -- curl -s localhost:3000' },
+        { type: 'cmd', text: 'curl -s https://dev.bhatti.sh' },
         { type: 'wait', ms: 80 },
-        { type: 'out', text: `${GRN}{"visits":3}${RST}` },
+        { type: 'out', text: `${GRN}{"visits":3}${RST}  ${DIM}# in-memory state survived${RST}` },
         { type: 'wait', ms: 800 },
 
-        // 7. Save as reusable image
+        // 7. Save as reusable image.
         { type: 'cmd', text: 'bhatti image save dev --name my-app' },
-        { type: 'spinner', label: 'Saving image...', ms: 300, done: 'Image "my-app" saved (512MB)' },
+        { type: 'spinner', label: 'Saving image...', ms: 300,
+          done: 'saved "my-app" (1024MB)' },
         { type: 'wait', ms: 400 },
 
-        // 8. Stamp out another machine from it
+        // 8. Stamp out another machine from it.
         { type: 'cmd', text: 'bhatti create --name staging --image my-app' },
-        { type: 'spinner', label: 'Booting...', ms: 1500, done: `Created ${DIM}"staging"${RST} in 1.5s` },
+        { type: 'spinner', label: 'Booting...', ms: 280,
+          done: 'sandbox/staging created (1 vCPU, 1024 MB)' },
+        { type: 'out', text: '  IP:    10.0.1.6' },
+        { type: 'out', text: '  Shell: bhatti shell staging' },
         { type: 'wait', ms: 400 },
 
-        // 9. Publish to the internet
+        // 9. Publish to the internet (just a DB write — sub-ms).
         { type: 'cmd', text: 'bhatti publish staging -p 3000 -a staging' },
-        { type: 'wait', ms: 200 },
-        { type: 'out', text: `${GRN}✓${RST} https://staging.bhatti.sh` },
+        { type: 'wait', ms: 60 },
+        { type: 'out', text: `Published: ${GRN}https://staging.bhatti.sh${RST}` },
         { type: 'wait', ms: 600 },
 
-        // 10. See all machines
+        // 10. See all machines. Real CLI uses %-20s %-10s %-8s %-16s padding
+        // for the list columns; we narrow them here so the URL column fits in
+        // the hero terminal without wrapping. Same shape, tighter widths.
         { type: 'cmd', text: 'bhatti list' },
         { type: 'wait', ms: 100 },
         { type: 'stream', interval: 60, lines: [
-            `${DIM}NAME      THERMAL   MEMORY     UPTIME${RST}`,
-            `staging   hot       1024MB     12s`,
-            `dev       ${AMB}warm${RST}        —          6m`,
+            `${DIM}NAME      STATUS    THERMAL  IP          URL${RST}`,
+            `staging   running   hot      10.0.1.6    https://staging.bhatti.sh`,
+            `dev       running   ${AMB}cold${RST}     10.0.1.4    https://dev.bhatti.sh`,
         ]},
         { type: 'wait', ms: 800 },
 
-        // 11. Wake a sleeping machine
-        { type: 'cmd', text: 'bhatti exec dev -- curl -s localhost:3000' },
-        { type: 'wait', ms: 50 },
-        { type: 'out', text: `${DIM}[warm → hot in 0.4ms]${RST}` },
+        // 11. Wake a sleeping machine — cold sandbox, request triggers transparent wake.
+        // Real cold-wake-via-publish: ~60ms p50.
+        { type: 'cmd', text: 'curl -s https://dev.bhatti.sh' },
+        { type: 'wait', ms: 60 },
+        { type: 'out', text: `${DIM}# transparent wake from cold (~60ms)${RST}` },
         { type: 'out', text: `${GRN}{"visits":4}${RST}` },
 
         // End pause before loop

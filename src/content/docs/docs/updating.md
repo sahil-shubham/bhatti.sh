@@ -9,14 +9,20 @@ description: Keep bhatti up to date or remove it cleanly.
 # CLI (any machine)
 bhatti update
 
-# Server (updates all components)
+# Server (updates CLI, kernel, rootfs, lohar)
 sudo bhatti update
+
+# Server, but only the CLI binary
+bhatti update --cli-only
 
 # Server + install additional rootfs tiers
 sudo bhatti update --tiers all
+sudo bhatti update --tiers browser,docker
 ```
 
 Only changed components are downloaded — if the kernel and rootfs haven't changed since your last update, they're skipped automatically.
+
+Use `--cli-only` on a server when you want to test a CLI fix without touching kernel/rootfs/lohar. Use `--tiers` to pull additional rootfs images (`minimal`, `browser`, `docker`, `computer`) without re-running the full install.
 
 Or re-run the install command:
 

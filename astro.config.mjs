@@ -58,17 +58,6 @@ export default defineConfig({
                     // `## Optional` section grouping; this just controls order
                     // within the generated index.
                     demote: ['docs/under-the-hood/**'],
-                    // Curated link list for `## Optional`. The plugin still
-                    // catalogues these pages in the main sections, but agents
-                    // on a tight context budget can skip everything here.
-                    optionalLinks: [
-                        {
-                            label: 'OpenAPI YAML',
-                            url: 'https://github.com/sahil-shubham/bhatti/blob/main/docs/openapi.yaml',
-                            description:
-                                'Machine-readable API spec. The hand-curated /docs/reference/api/ page is the human-friendly version; this is the source of truth for tooling.',
-                        },
-                    ],
                     // Topic-scoped subsets. Each gets its own URL at
                     // /_llms-txt/<slug>.txt and a link from /llms.txt.
                     // Useful for agents that don't need the whole corpus.

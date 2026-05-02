@@ -5,7 +5,7 @@ description: Every HTTP endpoint with a runnable curl example, the response shap
 
 The bhatti server exposes a REST API over HTTP. Every authenticated endpoint requires a Bearer token; unauthenticated endpoints are limited to `/health` and `/_shell/<id>` (the embedded web-shell page).
 
-This page is the canonical hand-curated reference. Each endpoint shows a runnable `curl` and the response shape. Anything not in the curl example uses the documented default. The OpenAPI spec lives at [`docs/openapi.yaml`](https://github.com/sahil-shubham/bhatti/blob/main/docs/openapi.yaml) for tooling.
+This page is the canonical hand-curated reference. Each endpoint shows a runnable `curl` and the response shape. Anything not in the curl example uses the documented default.
 
 ## Base URL
 
