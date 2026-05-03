@@ -99,7 +99,7 @@ Or `bhatti destroy dev -y` if you don't want the confirmation prompt.
 ## What just happened
 
 1. **`bhatti create`** asked the daemon to boot a Firecracker
-   microVM — a real Linux VM with its own kernel, filesystem, and
+   microVM — a Linux VM with its own kernel, filesystem, and
    network interface.
 2. **`bhatti exec`** sent a command over the wire protocol to lohar,
    the guest agent running as PID 1 inside the VM.

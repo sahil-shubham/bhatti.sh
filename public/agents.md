@@ -85,7 +85,7 @@ won't pre-join for you.
 
 ### A. Preview deployments per pull request (CI)
 
-The canonical bhatti use case. Each PR gets its own real Linux VM,
+The canonical bhatti use case. Each PR gets its own Linux VM,
 its own URL, and costs nothing while idle (auto-pauses, ~50 ms cold
 wake when a reviewer clicks the link).
 

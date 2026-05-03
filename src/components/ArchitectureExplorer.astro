@@ -812,7 +812,7 @@ Max frame: 1MB.</pre><h4>Atomic writes</h4><p>Piped exec has stdout+stderr gorou
         },
         "vm": {
             title: "Firecracker microVM",
-            html: `<p>Each sandbox is a real Linux VM — own kernel, filesystem, process isolation. Firecracker boots a minimal kernel with lohar as PID 1. One daemon manages N VMs, each with its own TAP device, IP, and thermal state.</p>
+            html: `<p>Each sandbox is a Linux VM — own kernel, filesystem, process isolation. Firecracker boots a minimal kernel with lohar as PID 1. One daemon manages N VMs, each with its own TAP device, IP, and thermal state.</p>
 <div class="eg"><div><h4>Disk layout (host-side)</h4><pre>/var/lib/bhatti/sandboxes/&lt;id&gt;/
 ├── rootfs.ext4     <span class="cm">CoW copy of base</span>
 ├── config.ext4     <span class="cm">1MB: hostname, token, env</span>

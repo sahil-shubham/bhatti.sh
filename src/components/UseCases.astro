@@ -2,7 +2,7 @@
 const useCases = [
     {
         title: "One sandbox per AI agent",
-        description: "The original use case for bhatti. Each agent gets its own real Linux VM. Snapshot at any tool call so you can branch from that exact moment if the run goes sideways.",
+        description: "The original use case for bhatti. Each agent gets its own Linux VM. Snapshot at any tool call so you can branch from that exact moment if the run goes sideways.",
         code: `<span class="c"># Each agent gets its own Linux VM</span>
 <span class="p">$</span> bhatti create --name agent --image ai
 sandbox/agent created (2 vCPU, 2048 MB)
@@ -39,7 +39,7 @@ pr-247  stopped   <span class="c">cold</span>     https://...
     },
     {
         title: "Anything you can rootfs is yours",
-        description: "OCI pull, Docker import, or save a running sandbox. Whatever you put in a rootfs becomes a real Linux VM that snapshots, resumes, and idles for free. Postgres, browser automation, full desktops — it all just works.",
+        description: "OCI pull, Docker import, or save a running sandbox. Whatever you put in a rootfs becomes a Linux VM that snapshots, resumes, and idles for free. Postgres, browser automation, full desktops — it all just works.",
         code: `<span class="c"># Pull an OCI image as a rootfs</span>
 <span class="p">$</span> bhatti image pull ghcr.io/myorg/devbox
 <span class="ok">✓</span> pulled, converted (820MB)
