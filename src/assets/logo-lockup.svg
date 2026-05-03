@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 152 24" fill="none">
+  <rect x="0" y="2" width="20" height="20" fill="#F97316"/>
+  <text font-family="'Geist Mono', ui-monospace, monospace" font-weight="600" font-size="18" y="18">
+    <tspan x="32" fill="#F97316">[</tspan><tspan fill="#FAFAFA">bhatti</tspan><tspan fill="#F97316">]</tspan>
+  </text>
+</svg>

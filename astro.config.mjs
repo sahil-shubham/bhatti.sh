@@ -31,6 +31,7 @@ export default defineConfig({
             // Force dark mode — matches marketing site
             components: {
                 ThemeSelect: './src/components/ThemeSelectOverride.astro',
+                SiteTitle: './src/components/SiteTitleOverride.astro',
             },
             plugins: [
                 starlightLlmsTxt({

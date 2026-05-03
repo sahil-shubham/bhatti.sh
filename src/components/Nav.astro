@@ -21,7 +21,7 @@ try {
 
 <nav id="navbar">
     <div class="container nav-inner">
-        <a href="/" class="logo">[bhatti]</a>
+        <a href="/" class="logo" aria-label="bhatti home"><span class="logo-bracket">[</span>bhatti<span class="logo-bracket">]</span></a>
         <div class="nav-links">
             {links.map(link => (
                 <a
@@ -86,6 +86,11 @@ try {
         font-size: 1.125rem;
         text-decoration: none;
         color: var(--zinc-50);
+        line-height: 1;
+    }
+
+    .logo-bracket {
+        color: var(--amber-500);
     }
 
     .nav-links {

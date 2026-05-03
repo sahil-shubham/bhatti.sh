@@ -1,0 +1,12 @@
+---
+// Match the marketing nav lockup exactly: amber-tinted brackets, white wordmark.
+// Default Starlight SiteTitle renders the configured `title` string inside a
+// single span, which makes per-character coloring impossible — so we replace it.
+const { siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<a href={siteTitleHref} class="site-title sl-flex" aria-label="bhatti home">
+    <span translate="no"
+        ><span class="logo-bracket">[</span>bhatti<span class="logo-bracket">]</span></span
+    >
+</a>

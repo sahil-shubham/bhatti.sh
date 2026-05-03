@@ -191,31 +191,25 @@ nav.sidebar .top-level details details > summary {
 
 /* ── Logo ─────────────────────────────────────────────────────────── */
 
-/* Match marketing site nav: 1.125rem mono, weight 600, zinc-50 */
+/* Match marketing site nav: 1.125rem mono, weight 600, zinc-50, amber brackets.
+   DOM is supplied by SiteTitleOverride.astro.
+
+   `text-decoration: none` matters here: Starlight's stock SiteTitle ships its
+   own scoped style that strips the underline, but scoped styles vanish when
+   we override the component. Without this rule, the browser default underline
+   reappears — visible only under the bracket glyphs because
+   `text-decoration-skip-ink: auto` skips it across the letters of `bhatti`. */
 .site-title {
     font-size: 1.125rem !important;
     font-weight: 600 !important;
     color: #FAFAFA !important;
     font-family: var(--sl-font-mono) !important;
+    line-height: 1;
+    text-decoration: none;
 }
 
-/* Hide the SVG logo — we use the text title instead */
-.site-title img {
-    display: none;
-}
-
-/* Un-hide the sr-only title text (Starlight hides it when replacesTitle is true) */
-.site-title .sr-only {
-    position: static !important;
-    width: auto !important;
-    height: auto !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    overflow: visible !important;
-    clip: auto !important;
-    clip-path: none !important;
-    white-space: nowrap !important;
-    border-width: 0 !important;
+.site-title .logo-bracket {
+    color: #F97316;
 }
 
 /* ── Prose ─────────────────────────────────────────────────────────── */
