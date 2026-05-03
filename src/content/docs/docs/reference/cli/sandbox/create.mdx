@@ -22,13 +22,7 @@ The created sandbox is in the `running` (hot) thermal state. Without `--keep-hot
 
 `--volume` and `--secret` reference resources that must already exist (create them with [`bhatti volume create`](/docs/reference/cli/volumes/create/) and [`bhatti secret set`](/docs/reference/cli/secrets/set/)). `--file` reads a local file at submit time and writes its bytes to the guest path during boot — convenient for injecting config files without a volume.
 
-:::caution[--secret and --file are ignored when --template is used]
-The server's template-creation path injects only secrets pre-configured on the
-template; request-side `--secret` and `--file` flags are silently dropped
-when `--template` is set. To use these flags, create directly without a
-template. (Tracked: server should either merge or reject these in the
-template path.)
-:::
+When used with `--template`, request-side `--secret` and `--file` are merged into the template's defaults: secrets from both lists are resolved (request-side names that don't exist in your secret store return `400`); `--file` adds to the template (templates have no files of their own). For environment variables, `--secret` wins over `--env` for the same name.
 
 `--cpus` accepts fractional values (e.g. `0.5`, `1.5`); the host scheduler runs vCPUs as time-shared threads, so fractional allocation maps to "you're entitled to ~N vCPU-seconds per second."
 
