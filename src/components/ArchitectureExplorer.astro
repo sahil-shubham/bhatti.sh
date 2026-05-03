@@ -110,7 +110,7 @@
                     <div class="net-row">
                         <div class="net-node" data-explore="net-bridge">
                             <span class="net-dot"></span>
-                            <span>brbhatti0 bridge</span>
+                            <span>brbhatti-N bridge</span>
                         </div>
                         <div class="net-line"></div>
                         <div class="net-node" data-explore="net-tap">
@@ -739,7 +739,7 @@
 ag := vm.Agent       <span class="cm">// capture ref</span>
 vm.stateMu.Unlock()  <span class="cm">// release lock</span>
 <span class="kw">return</span> ag.Exec(cmd)   <span class="cm">// no lock held</span></pre><p>Each VM gets its own mutex. Shell calls last hours — can't hold the lock.</p></div></div>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/architecture.md" target="_blank">Architecture doc →</a>`
+<a class="doc-link" href="/docs/under-the-hood/architecture/">Architecture overview →</a>`
         },
         "api": {
             title: "REST / WebSocket API",
@@ -752,8 +752,8 @@ Accept: application/x-ndjson
 <span class="cm">Each line flushed immediately.</span></pre></div>
 <div><h4>File ops with server-side truncation</h4><pre>GET /sandboxes/:id/files
   ?path=/app.log
-  &amp;offset=1&amp;limit=2000&amp;max_bytes=51200</pre><p>472µs for a 1KB read. No fork, no pipe, single TCP connection.</p></div></div>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/api-reference.md" target="_blank">API reference →</a>`
+  &amp;offset=1&amp;limit=2000&amp;max_bytes=51200</pre><p>~12ms p50 wall-clock for a 1KB read — CLI through HTTP API to in-VM agent and back. No fork, no pipe, single TCP connection.</p></div></div>
+<a class="doc-link" href="/docs/reference/api/">API reference →</a>`
         },
         "thermal": {
             title: "Thermal Manager",
@@ -765,14 +765,14 @@ Accept: application/x-ndjson
 <p>Idle 30s → warm. Idle 30min → cold. <code>ensureHot()</code> before every operation.</p></div>
 <div><h4>The vsock bug</h4><p>Vsock breaks after snapshot/restore — connections complete the host handshake but never reach the guest. Confirmed across kernel 5.10, 6.1, FC 1.6.0–1.14.0. This is a known Firecracker limitation.</p>
 <p>Fix: TCP over virtio-net post-restore. Lohar listens on both. +0.1ms.</p></div></div>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/thermal-management.md" target="_blank">Thermal management →</a>`
+<a class="doc-link" href="/docs/under-the-hood/thermal-states/">Thermal states →</a>`
         },
         "engine": {
             title: "Firecracker Engine",
             html: `<p>Direct HTTP to Firecracker's Unix socket — no SDK, ~20 lines of helpers instead of 15K lines of Swagger.</p>
-<div class="eg"><div><h4>Full snapshots</h4><table class="st"><tr><th>Type</th><th>Writes</th><th>512MB VM</th></tr><tr><td>Full</td><td>every page</td><td>~621ms</td></tr></table><p><code>track_dirty_pages: false</code>. Every snapshot is a complete, self-consistent image. Diff snapshots disabled due to dirty page tracking gaps in Firecracker.</p></div>
+<div class="eg"><div><h4>Full snapshots</h4><table class="st"><tr><th>Type</th><th>Writes</th><th>1024MB VM</th></tr><tr><td>Full</td><td>every page</td><td>~485ms p50</td></tr></table><p><code>track_dirty_pages: false</code>. Every snapshot is a complete, self-consistent image. Diff snapshots disabled due to dirty page tracking gaps in Firecracker. p99 reaches ~800ms under disk contention.</p></div>
 <div><h4>Recovery</h4><p><code>recoverVMs()</code> reads SQLite on restart. Handles JSON float64 ↔ SQLite int coercion. Orphaned TAP devices cleaned up before VMs load.</p></div></div>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/decisions.md" target="_blank">Design decisions →</a>`
+<a class="doc-link" href="/docs/under-the-hood/decisions/">Decisions &amp; learnings →</a>`
         },
         "store": {
             title: "SQLite + age encryption",
@@ -793,21 +793,22 @@ fc_state    <span class="cm">— per-VM Firecracker config for recovery</span></
 └────────────────┴───────────┴──────────────────────┘
 Max frame: 1MB.</pre><h4>Atomic writes</h4><p>Piped exec has stdout+stderr goroutines writing concurrently. <code>WriteFrame</code> assembles the entire frame into one buffer. Without this, concurrent chunks interleave.</p></div>
 <div><h4>Frame types</h4><table class="st"><tr><th>Type</th><th>Byte</th><th>Use</th></tr><tr><td>STDIN/OUT/ERR</td><td>0x01–03</td><td>I/O streams</td></tr><tr><td>RESIZE</td><td>0x04</td><td>[u16 rows][u16 cols]</td></tr><tr><td>EXIT</td><td>0x05</td><td>[i32 exit code]</td></tr><tr><td>EXEC_REQ</td><td>0x10</td><td>JSON exec request</td></tr><tr><td>AUTH</td><td>0x11</td><td>per-sandbox token</td></tr><tr><td>FILE_*</td><td>0x50–57</td><td>read/write/stat/ls</td></tr></table><p>One connection per op. TTY sessions stay open. Unknown types skipped.</p></div></div>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/wire-protocol.md" target="_blank">Protocol spec →</a>`
+<a class="doc-link" href="/docs/under-the-hood/wire-protocol/">Wire protocol →</a>`
         },
         "lohar": {
             title: "lohar — Guest Agent (PID 1)",
-            html: `<p>Replaces systemd. Static Go binary, no libc. Handles init, exec, PTY sessions, file ops, port forwarding.</p>
+            html: `<p>Replaces systemd. Static Go binary, no libc. PID 1 init duties, agent protocol over TCP, exec sessions with scrollback, file ops, port forwarding, and a systemd-shim layer so apt post-install scripts and Debian tooling don't notice systemd is missing.</p>
 <div class="eg"><div><h4>Boot sequence (~3.5s)</h4><pre><span class="cm">// 1. mount /proc, /sys, /dev, /dev/pts</span>
 <span class="cm">// 2. bring up loopback (raw ioctl)</span>
 <span class="cm">// 3. load config drive (/dev/vdb)</span>
 <span class="cm">// 4. network already up (kernel ip=)</span>
 <span class="cm">// 5. listen vsock + TCP :1024, :1025</span>
-<span class="cm">// 6. run init script as session</span>
+<span class="cm">// 6. tmpfiles.d, statedirs, unit graph</span>
+<span class="cm">// 7. run init script as session</span>
 <span class="kw">select</span> {} <span class="cm">// PID 1 never exits</span></pre></div>
-<div><h4>Session model</h4><p>Every TTY exec = persistent session + 64KB ring buffer. Disconnect detaches (no SIGHUP). Reattach replays scrollback.</p>
-<h4>Kill semantics</h4><table class="st"><tr><th>Context</th><th>Signal</th></tr><tr><td>Piped exec</td><td>SIGKILL to process group</td></tr><tr><td>TTY disconnect</td><td>None (detach)</td></tr><tr><td>TTY kill</td><td>SIGTERM to process group</td></tr></table></div></div>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/guest-agent.md" target="_blank">Guest agent doc →</a>`
+<div><h4>systemctl shim</h4><p>Real systemd is pinned out of apt; lohar implements the surface Debian tooling actually calls: unit graph eval (After/Before/Requires), Condition= directives, StateDirectory=, tmpfiles.d, sd_notify, cgroup-v2 resource limits.</p>
+<h4>Sessions and signals</h4><table class="st"><tr><th>Context</th><th>Signal</th></tr><tr><td>Piped exec</td><td>SIGKILL to process group</td></tr><tr><td>TTY disconnect</td><td>None (detach, scrollback kept)</td></tr><tr><td>TTY kill</td><td>SIGTERM to process group</td></tr></table></div></div>
+<a class="doc-link" href="/docs/under-the-hood/lohar-the-blacksmith/">Lohar deep dive →</a>`
         },
         "vm": {
             title: "Firecracker microVM",
@@ -823,13 +824,14 @@ Max frame: 1MB.</pre><h4>Atomic writes</h4><p>Piped exec has stdout+stderr gorou
         },
         "tiers": {
             title: "Rootfs Tiers + Custom Kernel",
-            html: `<div class="eg"><div><h4>Three tiers</h4><table class="st"><tr><th>Tier</th><th>Contents</th><th>Size</th></tr>
+            html: `<div class="eg"><div><h4>Four tiers</h4><table class="st"><tr><th>Tier</th><th>Contents</th><th>Size</th></tr>
 <tr><td><span class="hl">minimal</span></td><td>Ubuntu 24.04 + lohar</td><td>~200MB</td></tr>
 <tr><td><span class="hl">browser</span></td><td>+ Node 22 + headless_shell + Playwright</td><td>~600MB</td></tr>
-<tr><td><span class="hl">docker</span></td><td>+ Docker Engine + containerd</td><td>~550MB</td></tr></table>
-<p>Browser uses <code>headless_shell</code> — Chrome 133+ broke CDP in new headless mode.</p></div>
-<div><h4>Custom kernel (16 flags)</h4><p>Starts from Firecracker CI config (v1.15, kernel 6.1.155). Adds Docker networking (IP_NF_RAW, VXLAN, MACVLAN), VPN (TUN, WIREGUARD), FUSE, kernel TLS, AppArmor, Landlock. Each documented with cost when unused.</p>
-<a class="doc-link" href="https://github.com/sahil-shubham/bhatti/blob/main/docs/kernel.md" target="_blank">Kernel doc →</a></div></div>`
+<tr><td><span class="hl">docker</span></td><td>+ Docker Engine + containerd</td><td>~550MB</td></tr>
+<tr><td><span class="hl">computer</span></td><td>+ XFCE + KasmVNC + Chromium</td><td>~1.5GB</td></tr></table>
+<p>Browser uses <code>headless_shell</code> — Chrome 133+ broke CDP in new headless mode. Tiers auto-discovered at server startup by globbing <code>rootfs-*-{arch}.ext4</code>.</p></div>
+<div><h4>Custom kernel (16 flags)</h4><p>Starts from Firecracker CI config (v1.14.0, kernel 6.1.155). Adds Docker networking (IP_NF_RAW, VXLAN, MACVLAN), VPN (TUN, WIREGUARD), FUSE, kernel TLS, AppArmor, Landlock. Each documented with cost when unused.</p>
+<a class="doc-link" href="/docs/under-the-hood/engine/">Engine deep dive →</a></div></div>`
         },
         "configdrive": {
             title: "Config Drive (config.ext4)",
@@ -859,28 +861,29 @@ $ bhatti create --name dev \\
 <div><h4>Implementation</h4><p>Formatted with <code>mkfs.ext4</code> on creation. Mounted by lohar during boot based on config drive volume entries. Writes are to a real block device — no overlay, no copy-on-write. Volume can only be attached to one sandbox at a time.</p></div></div>`
         },
         "net-bridge": {
-            title: "brbhatti0 Bridge",
-            html: `<p>A single Linux bridge shared by all VMs. Created on engine startup with <code>ip link add brbhatti0 type bridge</code>. Assigned <code>192.168.137.1/24</code>. All TAP devices are attached to this bridge.</p>
-<p><code>ensureBridge()</code> is idempotent — runs on every startup, ignores "already exists." Enables IP forwarding via <code>/proc/sys/net/ipv4/ip_forward</code>. FORWARD rules inserted at position 1 to take priority over any DROP rules (e.g., from Kubernetes).</p>
-<p>The default outbound interface is auto-detected from <code>ip route show default</code>.</p>`
+            title: "Per-user Bridges (brbhatti-N)",
+            html: `<p>Each user gets their own Linux bridge — <code>brbhatti-1</code>, <code>brbhatti-2</code>, ... — assigned a /24 subnet derived from the user index: <code>10.0.1.0/24</code> for user 1, <code>10.0.2.0/24</code> for user 2, ..., <code>10.255.254.0/24</code> at the upper end. That's 65,024 users × 253 VMs each.</p>
+<p>Per-user bridges (vs. one shared bridge) give each user their own L2 broadcast domain. Sandboxes within a user can talk to each other; sandboxes across users cannot — no iptables policy needed, the boundary is the bridge itself.</p>
+<p><code>ensureBridge()</code> is idempotent. Enables IP forwarding via <code>/proc/sys/net/ipv4/ip_forward</code>. FORWARD rules inserted at position 1 to take priority over any DROP rules (e.g., from Kubernetes). The legacy single-bridge <code>brbhatti0</code> on <code>192.168.137.0/24</code> is cleaned up on first start of any v0.5.14+ daemon.</p>`
         },
         "net-tap": {
             title: "TAP Devices",
-            html: `<p>Each VM gets a dedicated TAP device: <code>ip tuntap add tapXXXXXXXX mode tap</code>, attached to the bridge, brought up. Firecracker binds the VM's virtio-net to this TAP.</p>
+            html: `<p>Each VM gets a dedicated TAP device: <code>ip tuntap add tapXXXXXXXX mode tap</code>, attached to <em>that user's</em> bridge, brought up. Firecracker binds the VM's virtio-net to this TAP.</p>
 <p><strong>Not destroyed during snapshot.</strong> The FC snapshot contains virtio-net state referencing the TAP — destroying and recreating it breaks networking on restore. TAP is only destroyed on <code>Destroy()</code>.</p>
 <p>On engine startup, orphaned TAP devices from previous crashes are cleaned up by listing all <code>tun</code> type devices and deleting any <code>tap*</code> device not in the known set.</p>`
         },
         "net-eth0": {
             title: "eth0 (kernel ip=) — Guest Side",
-            html: `<p>The guest IP is configured via the kernel <code>ip=</code> command-line parameter, passed through Firecracker's boot args:</p>
-<pre>ip=192.168.137.2::192.168.137.1:255.255.255.0::eth0:off:1.1.1.1:8.8.8.8:</pre>
+            html: `<p>The guest IP is configured via the kernel <code>ip=</code> command-line parameter, passed through Firecracker's boot args. For a sandbox on user 1 (10.0.1.0/24):</p>
+<pre>ip=10.0.1.2::10.0.1.1:255.255.255.0::eth0:off:1.1.1.1:8.8.8.8:</pre>
 <p>This configures eth0 with IP, gateway, netmask, and DNS <strong>before init runs</strong>. By the time lohar starts, the network is already up.</p>
-<p>eth0 lives inside the VM — it's the guest-side endpoint of the virtio-net device. The host-side endpoint is the TAP device attached to the bridge.</p>
-<h4>Why not DHCP?</h4><p>The host polls lohar via TCP to detect readiness. If lohar configures networking, the host can't reach lohar to tell it what IP to use — chicken-and-egg. Kernel <code>ip=</code> solves this: zero dependencies, zero latency, zero failure modes.</p>`
+<p>eth0 lives inside the VM — it's the guest-side endpoint of the virtio-net device. The host-side endpoint is the TAP device attached to that user's bridge.</p>
+<h4>Why not DHCP?</h4><p>The host polls lohar via TCP to detect readiness. If lohar configures networking, the host can't reach lohar to tell it what IP to use — chicken-and-egg. Kernel <code>ip=</code> solves this: zero dependencies, zero latency, zero failure modes.</p>
+<a class="doc-link" href="/docs/under-the-hood/networking/">Networking deep dive →</a>`
         },
         "net-nat": {
             title: "iptables NAT",
-            html: `<p>A single masquerade rule for the subnet: <code>iptables -t nat -A POSTROUTING -s 192.168.137.0/24 -o eth0 -j MASQUERADE</code>. All VMs share it — no per-VM rules to manage.</p>
+            html: `<p>One masquerade rule per user subnet: <code>iptables -t nat -A POSTROUTING -s 10.X.Y.0/24 -o eth0 -j MASQUERADE</code>. Within a user, all VMs share their rule — no per-VM iptables to manage.</p>
 <h4>Post-snapshot networking</h4><p>After restore, the host's conntrack table has stale entries for the guest IP. Guest-initiated SYN packets get stuck in retransmit backoff for 30+ seconds. This doesn't affect normal operation (host always initiates connections to the agent), but <code>ping</code> from inside the VM may be slow immediately after resume.</p>`
         },
     };
