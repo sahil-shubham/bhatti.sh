@@ -58,7 +58,7 @@ bhatti destroy dev                    # clean up
 | **Secrets** | | |
 | [`secret set`](/docs/reference/cli/secrets/set/) | `bhatti secret set <name> <value>` | Create or update a secret |
 | [`secret list`](/docs/reference/cli/secrets/list/) | `bhatti secret list` | List secret names |
-| [`secret delete`](/docs/reference/cli/secrets/delete/) | `bhatti secret delete <name>` | Delete a secret |
+| [`secret delete`](/docs/reference/cli/secrets/delete/) | `bhatti secret delete <name> [-y]` | Delete a secret |
 | **Snapshots** | | |
 | [`snapshot create`](/docs/reference/cli/snapshots/create/) | `bhatti snapshot create <sandbox> --name <snap>` | Checkpoint a running sandbox |
 | [`snapshot list`](/docs/reference/cli/snapshots/list/) | `bhatti snapshot list` | List snapshots |
@@ -138,9 +138,7 @@ See [Configuration](/docs/reference/config/) for the file format and layered loa
 | `1` | CLI or API error (see stderr for details and recovery hints). |
 | `<n>` | `bhatti exec` only — the child process's exit code is forwarded verbatim, so a script's `$?` reflects the command's true status. |
 
-Most destructive commands (`destroy`, `volume delete`, `image delete`, `snapshot delete`, `volume backup-delete`, `user delete`) require confirmation. Pass `-y` / `--yes` to skip the prompt; without `-y` in a non-interactive shell, the command exits `1`.
-
-`secret delete` is the exception — it doesn't prompt. Make sure you have the right name.
+Destructive commands (`destroy`, `volume delete`, `image delete`, `snapshot delete`, `volume backup-delete`, `secret delete`, `user delete`) require confirmation. Pass `-y` / `--yes` to skip the prompt; without `-y` in a non-interactive shell, the command exits `1`.
 
 ## Shell completion
 

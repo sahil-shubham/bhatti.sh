@@ -78,7 +78,7 @@ output: /var/log/lohar/sessions/sess-7b3c.log
 
 | Flag | Default | Description |
 | ---- | ------- | ----------- |
-| `--timeout <int>` | `300` | Exec timeout in seconds. The server kills the process group on timeout and returns exit code `137`. Hard max: `86400` (24 hours). The CLI's `--help` text says `3600`; that's stale — the server cap is `86400`. |
+| `--timeout <int>` | `300` | Exec timeout in seconds. The server kills the process group on timeout and returns exit code `137`. Hard max: `86400` (24 hours). |
 | `--detach` | `false` | Run the command in the background and return immediately with the guest PID and the path to the captured output file. The session continues until it finishes or is killed. |
 
 See [Global flags](/docs/reference/cli/#global-flags) for `--url`, `--token`, `--json`, `--timing`, `--data-dir`.
