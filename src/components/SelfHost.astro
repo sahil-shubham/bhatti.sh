@@ -19,32 +19,35 @@
                     <li>Root access for daemon (Firecracker requirement)</li>
                 </ul>
                 <p class="text-xs text-muted" style="margin-top: 16px;">
-                    Tested on: Raspberry Pi 5, Hetzner AX-series, AWS Graviton metal.
+                    Running on: two Raspberry Pi 5s with NVMe HATs at home, a Hetzner AX102 in production.
                 </p>
             </div>
         </div>
         <div>
             <div class="code-panel">
-                <pre class="code-panel-pre"><code class="mono"><span class="comment"># 1. Install on your Linux box (Pi, Hetzner, anything with /dev/kvm)</span>
-<span class="cmd">$ curl -fsSL bhatti.sh/install | sudo bash</span>
-<span class="comment">==> Installing bhatti (server, minimal tier)</span>
-<span class="comment">    ✓ Firecracker + jailer</span>
-<span class="comment">    ✓ bhatti, lohar, kernel, rootfs</span>
-<span class="comment">    ✓ admin user created, API key saved to ~/.bhatti/config.yaml</span>
-<span class="comment">    ✓ bhatti service started</span>
+                <pre class="code-panel-pre"><code class="mono"><span class="c"># Install on any Linux box with KVM</span>
+<span class="p">$</span> curl -fsSL bhatti.sh/install | sudo bash
+==> Installing bhatti (server, minimal tier)
+    <span class="ok">✓</span> Firecracker + jailer
+    <span class="ok">✓</span> bhatti, lohar, kernel, rootfs
+    <span class="ok">✓</span> admin API key in ~/.bhatti/config.yaml
+    <span class="ok">✓</span> bhatti.service started
 
-<span class="comment"># 2. Create a sandbox — no setup, no key paste, you're already wired up</span>
-<span class="cmd">$ bhatti create --name dev</span>
-<span class="comment">sandbox/dev created (1 vCPU, 1024 MB)</span>
+<span class="c"># Create a sandbox — no setup step needed</span>
+<span class="p">$</span> bhatti create --name dev
+sandbox/dev created (1 vCPU, 1024 MB)
 
-<span class="cmd">$ bhatti exec dev -- uname -a</span>
-<span class="comment">Linux dev 6.1.155 #1 SMP aarch64 GNU/Linux</span>
+<span class="p">$</span> bhatti exec dev -- uname -a
+Linux dev 6.1.155 #1 SMP aarch64 GNU/Linux
 
-<span class="comment"># 3. (Later) Add a teammate, drive it from your laptop</span>
-<span class="cmd">$ sudo bhatti user create --name alice</span>
-<span class="comment">bht_alice_abc123...</span>
-<span class="cmd">$ bhatti setup --url https://your-server:8080 --token bht_alice_abc123</span>
-<span class="comment">✓ authenticated (0 sandboxes)</span></code></pre>
+<span class="c"># Add a teammate; let them drive it remotely</span>
+<span class="p">$</span> sudo bhatti user create --name alice
+bht_alice_abc123...
+
+<span class="c"># Then on their machine:</span>
+<span class="p">$</span> bhatti setup --url https://api:8080 \
+               --token bht_alice_abc123
+<span class="ok">✓</span> authenticated (0 sandboxes)</code></pre>
             </div>
         </div>
     </div>
@@ -61,13 +64,14 @@
         line-height: 1.5;
     }
 
-    .comment {
-        color: var(--zinc-500);
-    }
-
-    .cmd {
-        color: var(--zinc-50);
-    }
+    /* Match the use-cases / hero palette: amber prompt, dim comments,
+       green success. Output text uses the panel's default color.
+       :global() needed because spans inside <pre> don't pick up
+       Astro's automatic class scoping. Scoped via the #get-started
+       wrapper so the styles don't leak. */
+    #get-started :global(.p) { color: var(--amber-500); }
+    #get-started :global(.c) { color: var(--zinc-500); }
+    #get-started :global(.ok) { color: #22c55e; }
 
     .code-panel {
         min-width: 0;

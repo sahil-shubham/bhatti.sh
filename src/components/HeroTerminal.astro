@@ -127,107 +127,73 @@
     // cmd/bhatti/{sandbox,snapshot,image,misc}_cmd.go. Spinner durations
     // mirror the bench/results numbers from agni-01 (v1.11.0).
     const SCRIPT: Action[] = [
-        // 1. Create a machine. Real: 268ms p50.
+        // 1. Create a machine. Real: ~270ms p50 on Hetzner AX102.
         { type: 'cmd', text: 'bhatti create --name dev --cpus 2 --memory 1024' },
         { type: 'spinner', label: 'Booting...', ms: 280,
           done: 'sandbox/dev created (2 vCPU, 1024 MB)' },
-        { type: 'out', text: '  IP:    10.0.1.4' },
-        { type: 'out', text: '  Shell: bhatti shell dev' },
-        { type: 'wait', ms: 400 },
-
-        // 2. Start a server inside it (detached so exec returns).
-        { type: 'cmd', text: "bhatti exec --detach dev -- node /workspace/server.js" },
-        { type: 'wait', ms: 80 },
-        { type: 'out', text: 'pid: 218' },
-        { type: 'out', text: 'output: /tmp/bhatti-exec-a1b2c3d4.log' },
-        { type: 'wait', ms: 500 },
-
-        // 3. Hit it through the publish path — hot, ~2-3ms.
-        { type: 'cmd', text: 'curl -s https://dev.bhatti.sh' },
-        { type: 'wait', ms: 80 },
-        { type: 'out', text: '{"visits":1}' },
-        { type: 'wait', ms: 400 },
-
-        { type: 'cmd', text: 'curl -s https://dev.bhatti.sh' },
-        { type: 'wait', ms: 80 },
-        { type: 'out', text: '{"visits":2}' },
-        { type: 'wait', ms: 600 },
-
-        // 4. Snapshot — captures running processes + memory.
-        { type: 'comment', text: '# snapshot everything — processes, memory, state' },
-        { type: 'cmd', text: 'bhatti snapshot create dev --name checkpoint' },
-        { type: 'spinner', label: 'Snapshotting...', ms: 600,
-          done: 'checkpoint "checkpoint" created (1024MB)' },
-        { type: 'wait', ms: 500 },
-
-        // 5. Kill the server (exec returns silently on exit 0).
-        { type: 'cmd', text: 'bhatti exec dev -- pkill -f node' },
         { type: 'wait', ms: 200 },
 
-        { type: 'cmd', text: 'curl -s https://dev.bhatti.sh' },
-        { type: 'wait', ms: 100 },
-        { type: 'out', text: `${RED}curl: (52) Empty reply from server${RST}` },
-        { type: 'wait', ms: 800 },
+        // 2. Start a server inside the VM, detached so exec returns immediately.
+        { type: 'cmd', text: 'bhatti exec --detach dev -- node /workspace/server.js' },
+        { type: 'wait', ms: 200 },
+        { type: 'out', text: 'pid: 218' },
+        { type: 'wait', ms: 250 },
 
-        // 6. Destroy and restore from snapshot — process comes back with state intact.
+        // 3. Hit it through the publish path twice — the visits counter
+        // increments in memory. This sets up the snapshot drama.
+        { type: 'cmd', text: 'curl -s https://dev.bhatti.sh' },
+        { type: 'wait', ms: 60 },
+        { type: 'out', text: '{"visits":1}' },
+        { type: 'wait', ms: 250 },
+
+        { type: 'cmd', text: 'curl -s https://dev.bhatti.sh' },
+        { type: 'wait', ms: 60 },
+        { type: 'out', text: '{"visits":2}' },
+        { type: 'wait', ms: 400 },
+
+        // 4. Snapshot — captures running processes + memory + state.
+        { type: 'comment', text: '# snapshot — processes, memory, in-flight TCP, all of it' },
+        { type: 'cmd', text: 'bhatti snapshot create dev --name pre' },
+        { type: 'spinner', label: 'Snapshotting...', ms: 600,
+          done: 'checkpoint "pre" created (1024MB)' },
+        { type: 'wait', ms: 300 },
+
+        // 5. Destroy the whole VM — process, kernel, everything is gone.
         { type: 'cmd', text: 'bhatti destroy dev -y' },
-        { type: 'wait', ms: 100 },
+        { type: 'wait', ms: 80 },
         { type: 'out', text: 'sandbox/dev destroyed' },
         { type: 'wait', ms: 300 },
 
-        // Resume from named snapshot creates a NEW sandbox.
-        // Real output is tab-separated: <id>\t<name>\t<ip>.
-        { type: 'cmd', text: 'bhatti snapshot resume checkpoint --name dev' },
+        // 6. Resume from the snapshot into a new sandbox with the same name.
+        // Real CLI output is tab-separated: <id>\t<name>\t<ip>.
+        { type: 'cmd', text: 'bhatti snapshot resume pre --name dev' },
         { type: 'spinner', label: 'Restoring...', ms: 80,
           done: 'a1b2c3d4\tdev\t10.0.1.4' },
-        { type: 'wait', ms: 300 },
+        { type: 'wait', ms: 200 },
 
+        // 7. The wow. Visits is 3, not reset to 0 — the in-memory counter
+        // survived the destroy + resume.
         { type: 'cmd', text: 'curl -s https://dev.bhatti.sh' },
-        { type: 'wait', ms: 80 },
+        { type: 'wait', ms: 60 },
         { type: 'out', text: `${GRN}{"visits":3}${RST}  ${DIM}# in-memory state survived${RST}` },
-        { type: 'wait', ms: 800 },
+        { type: 'wait', ms: 700 },
 
-        // 7. Save as reusable image.
-        { type: 'cmd', text: 'bhatti image save dev --name my-app' },
-        { type: 'spinner', label: 'Saving image...', ms: 300,
-          done: 'saved "my-app" (1024MB)' },
-        { type: 'wait', ms: 400 },
-
-        // 8. Stamp out another machine from it.
-        { type: 'cmd', text: 'bhatti create --name staging --image my-app' },
-        { type: 'spinner', label: 'Booting...', ms: 280,
-          done: 'sandbox/staging created (1 vCPU, 1024 MB)' },
-        { type: 'out', text: '  IP:    10.0.1.6' },
-        { type: 'out', text: '  Shell: bhatti shell staging' },
-        { type: 'wait', ms: 400 },
-
-        // 9. Publish to the internet (just a DB write — sub-ms).
-        { type: 'cmd', text: 'bhatti publish staging -p 3000 -a staging' },
+        // 8. Publish a port — just a DB write, sub-millisecond.
+        { type: 'cmd', text: 'bhatti publish dev -p 3000 -a hello' },
         { type: 'wait', ms: 60 },
-        { type: 'out', text: `Published: ${GRN}https://staging.bhatti.sh${RST}` },
-        { type: 'wait', ms: 600 },
+        { type: 'out', text: `Published: ${GRN}https://hello.bhatti.sh${RST}` },
+        { type: 'wait', ms: 500 },
 
-        // 10. See all machines. Real CLI uses %-20s %-10s %-8s %-16s padding
-        // for the list columns; we narrow them here so the URL column fits in
-        // the hero terminal without wrapping. Same shape, tighter widths.
-        { type: 'cmd', text: 'bhatti list' },
-        { type: 'wait', ms: 100 },
-        { type: 'stream', interval: 60, lines: [
-            `${DIM}NAME      STATUS    THERMAL  IP          URL${RST}`,
-            `staging   running   hot      10.0.1.6    https://staging.bhatti.sh`,
-            `dev       running   ${AMB}cold${RST}     10.0.1.4    https://dev.bhatti.sh`,
-        ]},
-        { type: 'wait', ms: 800 },
-
-        // 11. Wake a sleeping machine — cold sandbox, request triggers transparent wake.
-        // Real cold-wake-via-publish: ~60ms p50.
-        { type: 'cmd', text: 'curl -s https://dev.bhatti.sh' },
+        // 9. Cold-wake on first hit. Real flow: idle 30 minutes → cold;
+        // we elide that here with a comment.
+        { type: 'comment', text: '# 30 minutes later — sandbox is cold, holding zero RAM' },
+        { type: 'cmd', text: 'curl -s https://hello.bhatti.sh' },
         { type: 'wait', ms: 60 },
-        { type: 'out', text: `${DIM}# transparent wake from cold (~60ms)${RST}` },
+        { type: 'out', text: `${DIM}# transparent wake from cold (~50ms)${RST}` },
         { type: 'out', text: `${GRN}{"visits":4}${RST}` },
 
-        // End pause before loop
-        { type: 'wait', ms: 6000 },
+        // End pause before the loop restarts.
+        { type: 'wait', ms: 3500 },
     ];
 
     // --- Engine ---
@@ -296,11 +262,11 @@
                     if (this.destroyed) return;
                     // Write char (overwrites caret), draw caret ahead
                     this.term.write(ch + CARET);
-                    await this.delay(14 + Math.random() * 14);
+                    await this.delay(8 + Math.random() * 10);
                 }
                 // pause between non-whitespace tokens
                 if (i < tokens.length - 1 && !/^\s+$/.test(token)) {
-                    await this.delay(40 + Math.random() * 80);
+                    await this.delay(20 + Math.random() * 30);
                 }
             }
 
