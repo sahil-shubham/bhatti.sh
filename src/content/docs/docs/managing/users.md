@@ -12,6 +12,8 @@ bhatti is multi-tenant by default. Every user gets:
 
 Users are created server-side, with `sudo bhatti user create`. The CLI commands all live in [Server & admin](/docs/reference/cli/admin/) — this page covers the model, not the surface.
 
+You won't usually run `user create` for yourself. The install script (`curl -fsSL bhatti.sh/install | sudo bash`) creates an `admin` user during setup and writes its API key to your `~/.bhatti/config.yaml`. The first manual `user create` you run is for adding a teammate — see [Self-hosting → adding teammates](/docs/self-hosting/#adding-teammates).
+
 ## How keys work
 
 The server stores only the SHA-256 hash of each API key. The plaintext is shown once at creation and once on rotation; if the user loses it, [`rotate-key`](/docs/reference/cli/admin/user-rotate-key/) is the only path back. There's no recovery.

@@ -20,7 +20,12 @@ Create a user with an API key and per-user resource limits.
 
 ## Description
 
-Allocates a new user record in the local SQLite database. Each user gets:
+Allocates a new user record in the local SQLite database. The install
+script already runs this once for `admin` during setup, so the first
+time you'd call `user create` yourself is when you want to add a
+teammate or a CI account.
+
+Each user gets:
 
 - A user ID (`usr_<8-hex>`).
 - An **API key** (`bht_<64-hex>`) — printed once, then only its SHA-256 hash is stored. **Save the key immediately**; it can't be recovered. Use [`user rotate-key`](/docs/reference/cli/admin/user-rotate-key/) if it's lost.
@@ -46,10 +51,8 @@ User created:
 
 This key will not be shown again. Save it now.
 
-Quick start:
-  export BHATTI_URL=http://localhost:8080
-  export BHATTI_TOKEN=bht_abc123def456...
-  bhatti create --name my-sandbox
+For remote CLI use:
+  bhatti setup --url https://your-server:8080 --token bht_abc123def456...
 ```
 
 ```bash
