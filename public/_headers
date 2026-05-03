@@ -1,0 +1,21 @@
+# Cloudflare static-asset header overrides.
+#
+# Without these, .md and .txt files are served as text/markdown / text/plain
+# with no charset, so browsers fall back to Latin-1 and mangle every em-dash
+# (U+2014 → "â€"") in our docs. Forcing UTF-8 fixes both human-browser
+# rendering and any spec-aware tool that respects Content-Type.
+
+/agents.md
+  Content-Type: text/markdown; charset=utf-8
+
+/llms.txt
+  Content-Type: text/plain; charset=utf-8
+
+/llms-small.txt
+  Content-Type: text/plain; charset=utf-8
+
+/llms-full.txt
+  Content-Type: text/plain; charset=utf-8
+
+/_llms-txt/*
+  Content-Type: text/plain; charset=utf-8
