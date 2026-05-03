@@ -25,18 +25,24 @@ const facts = [
 // HTTP-only. Both methodologies measure on the same host as the daemon,
 // so geographic network latency isn't included; add your RTT for remote use.
 //
+// Cold wake includes paging the VM's memory back in from disk on first
+// access, not just `bhatti start` returning — Firecracker restores
+// snapshots with lazy mmap-faulting, so the orchestration call returns
+// in ~60ms but the first real workload pays ~300ms of page-in cost.
+// We measure the user-facing cost (curl-to-response), not the
+// orchestration cost.
+//
 // We show p50 (typical) and p99 (tail) only. p95 was redundant with p99
 // at our sample sizes — same value or one sample apart. The pair P50/P99
 // communicates distribution shape without third-column noise.
 const benchmarks = [
-    { op: "Create a machine",          p50: "268ms",   p99: "278ms" },
-    { op: "Snapshot to disk (512MB)",  p50: "505ms",   p99: "577ms" },
-    { op: "Resume from disk",          p50: "75ms",    p99: "77ms" },
-    { op: "Wake on request (cold)",    p50: "60ms",    p99: "76ms" },
-    { op: "Wake on request (warm)",    p50: "4.3ms",   p99: "22.6ms" },
-    { op: "Destroy a machine",         p50: "93ms",    p99: "98ms" },
-    { op: "Run a command",             p50: "12ms",    p99: "17ms" },
-    { op: "20 commands in parallel",   p50: "34ms",    p99: "36ms" },
+    { op: "Create a machine",          p50: "266ms",   p99: "291ms" },
+    { op: "Snapshot to disk (1024MB)", p50: "485ms",   p99: "807ms" },
+    { op: "Wake on request (cold)",    p50: "360ms",   p99: "430ms" },
+    { op: "Wake on request (warm)",    p50: "3.7ms",   p99: "10.2ms" },
+    { op: "Destroy a machine",         p50: "87ms",    p99: "96ms" },
+    { op: "Run a command",             p50: "12ms",    p99: "14ms" },
+    { op: "20 commands in parallel",   p50: "32ms",    p99: "39ms" },
 ];
 ---
 
