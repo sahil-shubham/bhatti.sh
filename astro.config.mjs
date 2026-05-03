@@ -39,6 +39,8 @@ export default defineConfig({
                     description:
                         'Open-source Firecracker microVM orchestrator. Real Linux VMs created in seconds, snapshotted to disk, resumed in microseconds. Built for running AI coding agents in isolated environments.',
                     details: [
+                        '**Agents driving bhatti: start at <https://bhatti.sh/agents.md>** — task-shaped, voiced to you, organized by user intent and end-to-end workflows. Everything below is reference material to fetch on demand.',
+                        '',
                         'bhatti is a single binary. `bhatti serve` runs the daemon; everything else is a CLI client that talks to its HTTP API.',
                         'lohar is the guest agent that runs as PID 1 inside every microVM. It handles command execution, file operations, PTY sessions, and communicates with the host over a vsock connection.',
                         '',
