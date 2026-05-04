@@ -60,10 +60,26 @@ export default {
         }
 
         // 2. Collect endpoint — forward verbatim, never cache.
-        //    Preserve the real client IP so Umami's geo + unique-visitor
-        //    logic doesn't see every request as coming from one Cloudflare
-        //    egress IP. This requires CLIENT_IP_HEADER=X-Forwarded-For on
-        //    the Umami server.
+        //    Forward the real client IP and the visitor-location headers
+        //    so umami's geo lookup works. See:
+        //    https://docs.umami.is/docs/enable-cloudflare-headers
+        //
+        //    Headers we WANT to reach umami:
+        //      - X-Forwarded-For (we set it from CF-Connecting-IP). umami
+        //        with CLIENT_IP_HEADER=X-Forwarded-For reads from this.
+        //      - CF-Connecting-IP (umami's default fallback for IP).
+        //      - CF-IPCountry  (always sent by Cloudflare).
+        //      - CF-IPCity, CF-RegionCode (only if you've enabled the
+        //        "Add visitor location headers" Managed Transform on
+        //        the bhatti.sh zone in Cloudflare).
+        //
+        //    Caveat: mymami.sahil-shubham.in is itself behind Cloudflare,
+        //    and CF rewrites CF-* headers at its edge. So whether the
+        //    upstream actually sees the geo headers depends on whether
+        //    that zone is orange-clouded for the api/send hostname. If
+        //    geo lands as "Unknown" after this change, set
+        //    SKIP_LOCATION_HEADERS=1 on the umami container to force
+        //    its local geo DB instead.
         if (url.pathname === `${PREFIX}api/send`) {
             // Origin guard. Browsers fetching from bhatti.sh always send
             // Origin: https://bhatti.sh. Anything else is either non-
@@ -76,12 +92,9 @@ export default {
             const headers = new Headers(request.headers);
             const clientIP = request.headers.get('CF-Connecting-IP');
             if (clientIP) headers.set('X-Forwarded-For', clientIP);
-            // Strip the inbound Host so fetch() sets it from UPSTREAM, and
-            // strip Cloudflare-internal headers that shouldn't leak to the
-            // origin.
+            // Drop only request-tracing noise. Keep CF-Connecting-IP and
+            // CF-IPCountry / CF-IPCity / CF-RegionCode — umami uses them.
             headers.delete('Host');
-            headers.delete('CF-Connecting-IP');
-            headers.delete('CF-IPCountry');
             headers.delete('CF-Ray');
             headers.delete('CF-Visitor');
 
