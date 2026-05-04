@@ -920,6 +920,10 @@ $ bhatti create --name dev \\
         el.addEventListener('click', (e) => {
             e.stopPropagation();
             const key = el.dataset.explore!;
+            // Track which architecture node was opened. Closing the same
+            // node intentionally fires too — "clicked it twice in a row"
+            // is itself a signal of interest.
+            window.umami?.track('arch-explore', { node: key });
             active === key ? close() : open(key);
         });
     });

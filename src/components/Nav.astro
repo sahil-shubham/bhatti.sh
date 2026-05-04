@@ -1,7 +1,7 @@
 ---
 const links = [
     { label: "Docs", href: "/docs/quickstart/" },
-    { label: "GitHub", href: "https://github.com/sahil-shubham/bhatti", id: "gh-link", external: true },
+    { label: "GitHub", href: "https://github.com/sahil-shubham/bhatti", id: "gh-link", external: true, event: "cta-github" },
 ];
 
 let buildTimeStars: number | null = null;
@@ -28,6 +28,7 @@ try {
                     href={link.href}
                     {...(link.external ? { target: "_blank", rel: "noopener" } : {})}
                     id={link.id}
+                    {...(link.event ? { 'data-umami-event': link.event, 'data-umami-event-source': 'nav' } : {})}
                 >{link.label}{link.id === 'gh-link' && <span class:list={['gh-stars', { loaded: buildTimeStars != null }]} id="gh-stars">{buildTimeStars != null ? `★ ${buildTimeStars}` : ''}</span>}</a>
             ))}
             <a href="#get-started" class="btn btn-amber">Get Started</a>
@@ -47,6 +48,7 @@ try {
             <a
                 href={link.href}
                 {...(link.external ? { target: "_blank", rel: "noopener" } : {})}
+                {...(link.event ? { 'data-umami-event': link.event, 'data-umami-event-source': 'nav-mobile' } : {})}
             >{link.label}{link.id === 'gh-link' && <span class:list={['gh-stars', { loaded: buildTimeStars != null }]}>{buildTimeStars != null ? `★ ${buildTimeStars}` : ''}</span>}</a>
         ))}
         <a href="#get-started" class="btn btn-amber" style="width: 100%; margin-top: 8px;">Get Started</a>
