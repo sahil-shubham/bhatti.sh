@@ -28,6 +28,9 @@ function umamiHeadEntry() {
             'data-domains': 'bhatti.sh',
             'data-do-not-track': 'true',
             'data-performance': 'true',
+            'data-sample-rate': '0.5',
+            'data-mask-level': 'moderate',
+            'data-max-duration': '300000',
         },
     });
 }

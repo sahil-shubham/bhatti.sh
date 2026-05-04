@@ -6,10 +6,16 @@
 //   2. Both PUBLIC_UMAMI_* env vars present — only set in production env.
 //   3. data-domains="bhatti.sh" at runtime — tracker no-ops elsewhere.
 //
-// The script is loaded same-origin (/cf/script.js by default), proxied
-// through the Cloudflare Worker in worker/index.js to the self-hosted
-// Umami upstream. data-host-url points back at the same /cf/ prefix so
-// the collect endpoint follows the same proxy path.
+// The script is loaded same-origin (/cf/recorder.js by default — the
+// v3.1+ bundle that does pageviews AND session replay; swap to
+// /cf/script.js for pageviews-only), proxied through the Cloudflare
+// Worker in worker/index.js to the self-hosted Umami upstream.
+// data-host-url points back at the same /cf/ prefix so the collect
+// endpoint follows the same proxy path.
+//
+// data-sample-rate / data-mask-level / data-max-duration are session
+// replay knobs; recorder.js reads them, script.js ignores them, so
+// they're safe to leave on if we ever flip back.
 //
 // The mirror of this component lives in astro.config.mjs (umamiHeadEntry)
 // because Starlight's `head: [...]` config can't import Astro components.
@@ -31,5 +37,8 @@ const enabled =
         data-domains="bhatti.sh"
         data-do-not-track="true"
         data-performance="true"
+        data-sample-rate="0.5"
+        data-mask-level="moderate"
+        data-max-duration="300000"
     />
 )}

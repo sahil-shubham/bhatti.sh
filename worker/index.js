@@ -20,6 +20,10 @@ const PREFIX = '/cf/';
 // attacker can spoof Origin from a non-browser client — this is a
 // "go away" sign for the lazy, not a real security boundary.
 const ALLOWED_ORIGIN = 'https://bhatti.sh';
+// Tracker scripts we'll proxy. script.js is pageviews-only; recorder.js
+// is the v3.1+ all-in-one bundle that adds session replay on top.
+// Anything not on this list 404s through the asset binding.
+const PROXIED_SCRIPTS = new Set(['script.js', 'recorder.js']);
 
 export default {
     /**
@@ -29,26 +33,30 @@ export default {
     async fetch(request, env) {
         const url = new URL(request.url);
 
-        // 1. Tracker script — cache at the edge for an hour. Umami releases
+        // 1. Tracker scripts — cache at the edge for an hour. Umami releases
         //    are infrequent (weeks), so this is plenty fresh while keeping
-        //    origin load near-zero.
-        if (url.pathname === `${PREFIX}script.js`) {
-            const upstream = new Request(`${UPSTREAM}/script.js`, {
-                method: 'GET',
-                headers: {
-                    'User-Agent': request.headers.get('User-Agent') ?? '',
-                },
-            });
-            const resp = await fetch(upstream, {
-                cf: { cacheTtl: 3600, cacheEverything: true },
-            });
-            const headers = new Headers(resp.headers);
-            headers.set('Cache-Control', 'public, max-age=3600');
-            headers.delete('Set-Cookie');
-            return new Response(resp.body, {
-                status: resp.status,
-                headers,
-            });
+        //    origin load near-zero. Same handling for script.js and
+        //    recorder.js; we just forward whichever one was asked for.
+        if (url.pathname.startsWith(PREFIX)) {
+            const filename = url.pathname.slice(PREFIX.length);
+            if (PROXIED_SCRIPTS.has(filename)) {
+                const upstream = new Request(`${UPSTREAM}/${filename}`, {
+                    method: 'GET',
+                    headers: {
+                        'User-Agent': request.headers.get('User-Agent') ?? '',
+                    },
+                });
+                const resp = await fetch(upstream, {
+                    cf: { cacheTtl: 3600, cacheEverything: true },
+                });
+                const headers = new Headers(resp.headers);
+                headers.set('Cache-Control', 'public, max-age=3600');
+                headers.delete('Set-Cookie');
+                return new Response(resp.body, {
+                    status: resp.status,
+                    headers,
+                });
+            }
         }
 
         // 2. Collect endpoint — forward verbatim, never cache.
