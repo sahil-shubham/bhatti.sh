@@ -3,6 +3,34 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mdx from '@astrojs/mdx';
 import starlightLlmsTxt from 'starlight-llms-txt';
+import { loadEnv } from 'vite';
+
+// astro.config.mjs runs in plain Node, so it doesn't see import.meta.env.
+// Pull the same .env values Astro components see and feed them to the
+// Starlight head helper below.
+const env = loadEnv(process.env.NODE_ENV ?? 'production', process.cwd(), '');
+
+// Starlight's `head: [...]` is config-time and only takes plain tag
+// descriptors, so we can't import the UmamiAnalytics.astro component there.
+// This helper mirrors the component's gating logic and emits the same
+// attributes. Keep this in sync with src/components/UmamiAnalytics.astro.
+function umamiHeadEntry() {
+    if (process.env.NODE_ENV !== 'production') return null;
+    const { PUBLIC_UMAMI_SCRIPT_URL, PUBLIC_UMAMI_WEBSITE_ID } = env;
+    if (!PUBLIC_UMAMI_SCRIPT_URL || !PUBLIC_UMAMI_WEBSITE_ID) return null;
+    return /** @type {const} */ ({
+        tag: 'script',
+        attrs: {
+            defer: true,
+            src: PUBLIC_UMAMI_SCRIPT_URL,
+            'data-website-id': PUBLIC_UMAMI_WEBSITE_ID,
+            'data-host-url': 'https://bhatti.sh/cf',
+            'data-domains': 'bhatti.sh',
+            'data-do-not-track': 'true',
+            'data-performance': 'true',
+        },
+    });
+}
 
 // https://astro.build/config
 export default defineConfig({
@@ -18,7 +46,9 @@ export default defineConfig({
         '/docs/sandboxes/preview-urls/': '/docs/reference/cli/networking/publish/',
         '/docs/managing/templates/':     '/docs/reference/api/#templates',
     },
-    integrations: [
+    integrations: (() => {
+        const umamiEntry = umamiHeadEntry();
+        return [
         starlight({
             title: '[bhatti]',
             social: [
@@ -274,6 +304,11 @@ document.addEventListener('click', function(e) {
 });
 `.trim(),
                 },
+                // Umami tracker (production-only, gated on env). See
+                // umamiHeadEntry() at the top of this file. The conditional
+                // spread keeps the array typed as HeadConfig[] (filter(Boolean)
+                // doesn't narrow `null` away in TS).
+                ...(umamiEntry ? [umamiEntry] : []),
             ],
             expressiveCode: {
                 themes: ['github-dark'],
@@ -282,5 +317,6 @@ document.addEventListener('click', function(e) {
         // mdx() must come *after* starlight so astro-expressive-code (registered
          // by starlight) initialises first.
         mdx(),
-    ],
+        ];
+    })(),
 });

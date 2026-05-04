@@ -1,0 +1,35 @@
+---
+// Single source of truth for the Umami tracker snippet.
+//
+// Three independent gates have to all be true for the script to render:
+//   1. import.meta.env.PROD — set by `astro build`, false in `astro dev`.
+//   2. Both PUBLIC_UMAMI_* env vars present — only set in production env.
+//   3. data-domains="bhatti.sh" at runtime — tracker no-ops elsewhere.
+//
+// The script is loaded same-origin (/cf/script.js by default), proxied
+// through the Cloudflare Worker in worker/index.js to the self-hosted
+// Umami upstream. data-host-url points back at the same /cf/ prefix so
+// the collect endpoint follows the same proxy path.
+//
+// The mirror of this component lives in astro.config.mjs (umamiHeadEntry)
+// because Starlight's `head: [...]` config can't import Astro components.
+// Keep both in sync if you change attributes here.
+const { PUBLIC_UMAMI_SCRIPT_URL, PUBLIC_UMAMI_WEBSITE_ID } = import.meta.env;
+const enabled =
+    import.meta.env.PROD &&
+    Boolean(PUBLIC_UMAMI_SCRIPT_URL) &&
+    Boolean(PUBLIC_UMAMI_WEBSITE_ID);
+---
+
+{enabled && (
+    <script
+        is:inline
+        defer
+        src={PUBLIC_UMAMI_SCRIPT_URL}
+        data-website-id={PUBLIC_UMAMI_WEBSITE_ID}
+        data-host-url="https://bhatti.sh/cf"
+        data-domains="bhatti.sh"
+        data-do-not-track="true"
+        data-performance="true"
+    />
+)}
