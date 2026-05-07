@@ -188,10 +188,11 @@ guest's vsock listener. From the host, the connection looks
 Writes are accepted by the kernel but the guest never sees them.
 
 Tested with kernel 5.10, 6.1; Firecracker 1.6.0 through 1.14.0. The
-break is consistent. Other Firecracker orchestrators have hit the
-same thing — SlicerVM had to unship their suspend/restore feature
-in v0.1.108
-([`docs/archive/slicer-learnings.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/slicer-learnings.md)).
+break is consistent and lives in the Firecracker/vsock layer, not
+in our code. As a public corroboration point, SlicerVM dropped
+their suspend/restore feature in v0.1.108 — apparently for the
+same upstream cause
+([archive notes on Firecracker vsock behavior post-restore](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/slicer-learnings.md)).
 
 The fix: use TCP over the TAP network instead. Virtio-net survives
 snapshot/restore cleanly. Lohar listens on both vsock and TCP at
@@ -432,9 +433,12 @@ Things I'd revisit if I were starting bhatti from scratch today:
 
 If you want to read more like this, the full archive is in
 [`docs/archive/`](https://github.com/sahil-shubham/bhatti/tree/main/docs/archive)
-in the repo. Plans, post-mortems, learnings from other Firecracker
-projects (SlicerVM, fly.io's Sprites), and the migrations that got
-us to v1.7.
+in the repo. Plans, post-mortems, write-ups on the
+Linux / Firecracker / cloud-init behaviors that drove our design
+choices (with cross-references to publicly documented incidents at
+other orchestrators in the space — SlicerVM, fly.io's Sprites —
+where their reports matched ours), and the migrations that got us
+to v1.7.
 
 - [Architecture](/docs/under-the-hood/architecture/) — how all the
   pieces fit together
