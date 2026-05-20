@@ -196,6 +196,73 @@ restarts it according to `Restart=` and `RestartSec=`. At boot, lohar
 reads `multi-user.target.wants/` and starts each enabled service
 ([`startEnabledServices` at `systemctl.go:1318`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/systemctl.go#L1318)).
 
+### How services are spawned
+
+When the shim starts a `Type=simple` or `Type=notify` daemon, it doesn't
+`exec` the binary directly. It goes through a one-purpose helper —
+`lohar spawn` — so the daemon and any descendants land in the unit's
+cgroup before they ever run a line of code.
+
+```
+                ┌── lohar (PID 1, supervisor) ────────────────┐
+                │   CreateCgroup(/sys/fs/cgroup/.../X.service)   │
+                │   cmd := exec.Command("/proc/self/exe",        │
+                │       "spawn", "--cgroup", <path>, "--",       │
+                │       "/bin/sh", "-c", "exec "+ExecStart)       │
+                │   cmd.Start()  ──────────────────────┐         │
+                └────────────────────────────────────────────┼────────┘
+                                                       │
+                ┌── new process, lohar binary ──────────────▼───┐
+                │   1. write own PID to <cgroup>/cgroup.procs    │
+                │   2. syscall.Exec("/bin/sh", ...)              │
+                │      PID preserved. Becomes /bin/sh which       │
+                │      execs into the daemon.                     │
+                └────────────────────────────────────────────────────┘
+```
+
+Two invariants do all the work:
+
+1. **The cgroup write is observed by the kernel before any descendant of
+   the writer is born.** `lohar spawn` writes its own PID into
+   `<cgroup>/cgroup.procs` at the top of its `main`, before any
+   `fork(2)` or `execve(2)`. It then `execve`s into `/bin/sh`, which
+   `execve`s into the daemon. PID is preserved through all three
+   transitions; no `fork` happens in between.
+
+2. **`execve` does not change cgroup membership.** A process's cgroup is
+   a property of the kernel task, not the loaded image. So the daemon —
+   same PID throughout — is still in the unit's cgroup. Any subsequent
+   `fork()` the daemon does (X-server detach, dbus pre-fork workers,
+   classic Apache, anything that double-`fork`s during startup) inherits
+   the unit's cgroup. Stop-time `cgroup.kill` catches all of them.
+
+Real systemd does this in one syscall via `clone3(CLONE_INTO_CGROUP)`.
+Reproducing that in Go means reimplementing `syscall.ForkExec`'s
+post-fork setup (close-on-exec, signal handlers, credentials) under
+`syscall.ForkLock` — real surgery on code where bugs are silent and
+expensive. The helper approach is ~60 LoC of plain Go
+([`cmd/lohar/spawn.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/spawn.go))
+and gets the same correctness guarantee. `clone3` stays open as a
+future migration if the extra `execve` ever shows up in profiling —
+current measurements put it well under a millisecond against
+services-started times in the tens to hundreds of milliseconds.
+
+For unit-file authors: **nothing changes.** `ExecStart=` works exactly
+the same way. The shim wraps your command in `/bin/sh -c "exec
+<ExecStart>"` regardless — systemd's parser does the same thing. The
+spawn helper is upstream of all of that; you don't need to know about
+it.
+
+This is the mechanism that makes `KillMode=control-group` (systemd's
+default) reliable for daemons that fork during startup. Before this
+landed in v1.11.10 the placement happened *after* `cmd.Start()`
+returned, and any daemon that `daemon(3)`d during startup could have
+its child escape into lohar's root cgroup. `systemctl stop kasmvnc`
+would then leave an orphan `Xkasmvnc` holding the abstract
+`@/tmp/.X11-unix/X99` socket, breaking the next start with
+`Cannot establish any listening sockets`. Every shipped tier benefits
+from the fix transparently — no unit-file changes required.
+
 ### What the shim doesn't do
 
 - **Targets** beyond `multi-user.target` and a few well-known names

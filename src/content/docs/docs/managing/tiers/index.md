@@ -31,9 +31,25 @@ sudo bhatti update --tiers all
 
 The server auto-discovers any `rootfs-<tier>-<arch>.ext4` it finds in its images directory, so installing a tier is just a download — no config changes, no daemon restart logic to think about.
 
+## Units shipped by each tier
+
+What's actually running inside each tier, post-boot. Every unit listed here is managed by lohar's [`systemctl` shim](/docs/under-the-hood/lohar-the-blacksmith/) — no real systemd anywhere — and the same three commands (`systemctl status`, `journalctl -u`, `systemctl restart`) work the same way regardless of tier.
+
+| Tier | Unit | `Type=` | What it does |
+|------|------|---------|--------------|
+| `minimal` | (none shipped) | — | Provides the shim infrastructure. Anything you `apt install` (openssh-server, postgresql, nginx) becomes shim-managed on first boot. |
+| `browser` | `headless-chrome.service` | `simple` | `headless_shell` with `--remote-debugging-port=9222`. Long-running, no PIDFile, restarted on crash. |
+| `docker` | `docker.service` | `notify` | `dockerd` from upstream `docker-ce`. Drop-in binds the socket directly (no `fd://` socket activation) and chmods it for the `lohar` user. |
+| `computer` | `kasmvnc-firstboot.service` | `oneshot` | Generates a per-sandbox VNC password on first boot. `RemainAfterExit=yes` so dependent units' `After=` clauses are satisfied. |
+| `computer` | `kasmvnc.service` | `simple` | `Xkasmvnc` — X server + RFB→WebSocket gateway, the endpoint on `:6080`. After `kasmvnc-firstboot.service`. |
+| `computer` | `xfce-session.service` | `simple` | XFCE desktop session. `Requires=kasmvnc.service` so killing kasmvnc cascades. |
+| `computer` | `bhatti-display-env.service` | `oneshot` | Writes `DISPLAY=:99` into the env file `bhatti exec` reads, so `screenshot` and `xdotool` Just Work without per-call env. |
+
+If a tier's daemon crashes, the shim's `Restart=on-failure` policy brings it back; you see the crash and the restart in `journalctl -u <unit>`. If you edit a config file, `systemctl restart <unit>` picks it up. Every unit in this table is `Restart=on-failure` (long-running daemons) or `oneshot` (firstboot helpers). The cgroup-placement mechanism that makes `systemctl stop` reliable for forking daemons like `Xkasmvnc` is documented at [How services are spawned](/docs/under-the-hood/lohar-the-blacksmith/#how-services-are-spawned).
+
 ## The common operator story
 
-Every long-running process inside a tier is managed by lohar's **`systemctl` shim** ([lohar internals](/docs/under-the-hood/lohar-the-blacksmith/)). The mental model and commands are exactly what you'd type on a real systemd box:
+Every long-running process in every built-in tier is managed by lohar's **`systemctl` shim** ([lohar internals](/docs/under-the-hood/lohar-the-blacksmith/)). The same three commands — `systemctl status`, `journalctl -u`, `systemctl restart` — work the same way regardless of which tier you started from:
 
 ```bash
 bhatti exec dev -- systemctl status docker
@@ -41,7 +57,7 @@ bhatti exec dev -- journalctl -u docker -n 50
 bhatti exec dev -- systemctl restart docker
 ```
 
-If a managed daemon crashes, the shim's `Restart=on-failure` policy brings it back; you see the crash in `journalctl`. If you edit a config file, `systemctl restart <unit>` picks it up. The shape is the same on every tier.
+If a managed daemon crashes, the shim's `Restart=on-failure` policy brings it back; you see the crash in `journalctl`. If you edit a config file, `systemctl restart <unit>` picks it up. The shape is the same on every tier — that's the point of having one shim instead of one bespoke init script per tier.
 
 A few practical points the shim deliberately doesn't try to replicate from real systemd, because they cost more than they're worth in a microVM sandbox:
 

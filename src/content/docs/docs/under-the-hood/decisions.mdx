@@ -397,6 +397,85 @@ sessions per VM
 ([`cmd/lohar/handler.go:50`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/handler.go#L50))
 which keeps it bounded.
 
+## When kasmvnc.service couldn't restart
+
+The computer tier shipped in v1.11.9 — XFCE + KasmVNC + Chromium, all
+running as systemd units managed by the shim. First boot worked
+end-to-end (desktop renders, password generation runs once, screenshot
+works). Restarting `kasmvnc.service` did not. The unit transitioned to
+`failed` and the journal showed:
+
+```
+_XSERVTransSocketUNIXCreateListener: ...SocketCreateListener() failed
+_XSERVTransMakeAllCOTSServerListeners: server already running
+Fatal server error:
+Cannot establish any listening sockets - Make sure an X server isn't
+already running
+```
+
+`Xkasmvnc` from the previous run was still alive, holding the abstract
+Unix socket `@/tmp/.X11-unix/X99`. No file-system cleanup frees an
+abstract socket — only killing the holder does.
+
+`systemctl stop kasmvnc` *should* have killed it. The shim does
+`cgroup.kill` on the unit's cgroup, which the kernel translates into
+SIGKILL for every PID in `cgroup.procs`. Why didn't `Xkasmvnc` go down?
+
+```
+$ sudo cat /proc/$(pgrep -x Xkasmvnc)/cgroup
+0::/
+
+$ sudo cat /sys/fs/cgroup/system.slice/kasmvnc.service/cgroup.procs
+(empty)
+```
+
+`Xkasmvnc` was in the **root** cgroup, not the unit's. `cgroup.kill`
+on the unit's cgroup had nothing to kill.
+
+The shim's old `startDaemon` called `cmd.Start()` and *then* wrote the
+daemon's PID into the unit's `cgroup.procs`. The window between those
+two operations is microseconds, but `Xkasmvnc` uses `daemon(3)` — fork,
+parent exits, child detaches — during startup. The child fork happened
+during the window, before the placement write, so the child inherited
+whatever cgroup the parent was in (lohar's, i.e. root). Once the parent
+exited, the placement write moved only the dead parent's PID. The
+detached `Xkasmvnc` was forever in the wrong cgroup.
+
+The same shape applies to any double-forking daemon: classic Apache,
+`dbus-daemon` in default mode, `nginx` without `daemon off`. v1.11.9
+shipped the contract bug — every future tier author would have to audit
+whether their daemon double-forks during startup, and we'd have no way
+to enforce it without reading every package's source.
+
+The fix is to remove the race entirely by placing the cgroup before any
+fork can happen. Real systemd does this with `clone3(CLONE_INTO_CGROUP)`
+— a single syscall that forks and places atomically. Go's runtime
+doesn't expose `clone3`; reproducing it means reimplementing
+`syscall.ForkExec`'s post-fork setup (close-on-exec, signal-handler
+reset, credentials, working dir) under `syscall.ForkLock`. That's real
+surgery on code where bugs are silent and only surface under load.
+
+The alternative is a thin one-purpose helper. The supervisor invokes
+`lohar spawn` instead of the daemon directly; `spawn` writes its own
+PID into `<cgroup>/cgroup.procs` and then `execve`s into the daemon.
+`execve` preserves PID **and** cgroup membership, so the daemon — same
+PID throughout — is already in the unit's cgroup when it forks
+anything later. About 60 lines of plain Go
+([`cmd/lohar/spawn.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/spawn.go))
+gets the same correctness guarantee as `clone3` with code anyone can
+read in one sitting. The dispatch is on `argv[1]` (`/proc/self/exe
+spawn ...`) rather than the busybox-style symlink we use for
+`systemctl` and `journalctl`, because `lohar spawn` is a private
+supervisor primitive — not something a user should be wrapping their
+own commands with. `clone3` stays open as a future migration if the
+extra `execve` ever shows up in profiling.
+
+Shipped in v1.11.10. Every existing unit file works unchanged. The
+operator-visible difference: `systemctl stop`/`restart` now works for
+every kind of daemon, including the ones that fork during startup. See
+[How services are spawned](/docs/under-the-hood/lohar-the-blacksmith/#how-services-are-spawned)
+for the mechanism.
+
 ## What I'd do differently
 
 Things I'd revisit if I were starting bhatti from scratch today:
