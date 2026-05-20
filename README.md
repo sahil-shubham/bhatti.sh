@@ -1,46 +1,103 @@
-# Astro Starter Kit: Basics
+# bhatti.sh
 
-```sh
-yarn create astro@latest -- --template basics
+Source for **[bhatti.sh](https://bhatti.sh)** — the docs and homepage for [bhatti](https://github.com/sahil-shubham/bhatti), an open-source Firecracker microVM orchestrator.
+
+This repo is the docs site only. The daemon, agent, CLI, and install scripts live in [`sahil-shubham/bhatti`](https://github.com/sahil-shubham/bhatti). Doc changes ship on their own cadence — usually batched per release.
+
+## Stack
+
+- [Astro 6](https://astro.build/) + [Starlight](https://starlight.astro.build/) for docs
+- [`starlight-llms-txt`](https://www.npmjs.com/package/starlight-llms-txt) to auto-generate `/llms.txt` and per-page `_llms-txt/<slug>.txt`
+- MDX for under-the-hood pages that need rich embeds
+- Cloudflare Workers static assets (via Wrangler) for hosting
+- Umami for privacy-preserving analytics, proxied through `/cf` to avoid ad-blockers
+
+## Develop
+
+```bash
+yarn install
+yarn dev                # localhost:4321
+yarn build              # → ./dist/
+yarn preview            # serve the built dist locally
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+Hot reload covers everything under `src/` and `public/`. `astro.config.mjs` and `content.config.ts` changes need a `yarn dev` restart.
 
-## 🚀 Project Structure
+## Layout
 
-Inside of your Astro project, you'll see the following folders and files:
+```
+src/
+├── pages/index.astro              the homepage
+├── components/                    homepage sections (Hero, Features, …)
+│                                  and docs partials under components/docs/
+├── content/docs/docs/             the docs tree — every page here becomes a route
+│   ├── quickstart.md
+│   ├── self-hosting.md
+│   ├── concepts.md
+│   ├── managing/…                 user-facing how-tos (secrets, volumes, tiers…)
+│   ├── reference/…                CLI per-command, API, config
+│   └── under-the-hood/…           architecture, engine, lohar, networking,
+│                                  thermal-states, storage, wire-protocol,
+│                                  decisions
+├── layouts/                       Starlight layout overrides
+├── templates/cli-command.md.template   stamp this out for new CLI pages
+└── styles/                        Starlight theme overrides
 
-```text
-/
-├── public/
-│   └── favicon.svg
-├── src
-│   ├── assets
-│   │   └── astro.svg
-│   ├── components
-│   │   └── Welcome.astro
-│   ├── layouts
-│   │   └── Layout.astro
-│   └── pages
-│       └── index.astro
-└── package.json
+public/
+├── agents.md                      flat-served at /agents.md — the AI-agent
+│                                  entry point (task-shaped, voiced to agents)
+├── _redirects                     install URL shortcuts: /install, /uninstall
+└── _headers                       forces Content-Type charset=utf-8 on .md
+                                   so em-dashes don't mojibake
+
+astro.config.mjs                   sidebar config, redirects, llms-txt setup,
+                                   Umami head injection
 ```
 
-To learn more about the folder structure of an Astro project, refer to [our guide on project structure](https://docs.astro.build/en/basics/project-structure/).
+The `under-the-hood/` pages are the most rewarding to keep current — most casual readers skim Quickstart and Self-hosting, but evaluators read Architecture, Decisions, and the topic-specific deep dives.
 
-## 🧞 Commands
+## Per-command CLI pages
 
-All commands are run from the root of the project, from a terminal:
+`src/templates/cli-command.md.template` is the stamp. Drop a copy into `src/content/docs/docs/reference/cli/<group>/<command>.md`, fill in the synopsis + flags + examples, and add the slug to the sidebar group in `astro.config.mjs`. The page automatically gets a Synopsis component, a ServerOnly callout if needed, and a slot in the per-command sidebar.
 
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `yarn install`             | Installs dependencies                            |
-| `yarn dev`             | Starts local dev server at `localhost:4321`      |
-| `yarn build`           | Build your production site to `./dist/`          |
-| `yarn preview`         | Preview your build locally, before deploying     |
-| `yarn astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `yarn astro -- --help` | Get help using the Astro CLI                     |
+## `agents.md` and `llms.txt`
 
-## 👀 Want to learn more?
+Two AI-agent–facing surfaces:
 
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+- **`/agents.md`** — hand-written, task-shaped, lives at `public/agents.md`. Voiced *to* an agent setting up bhatti for the first time. End-to-end workflows: CI preview deployments, persistent dev envs, diagnostics. Pinned at `bhatti.sh/agents.md`.
+- **`/llms.txt`** — auto-generated by `starlight-llms-txt` at build time, indexes every docs page with a one-line summary. Each docs page contributes via its `description:` frontmatter. Per-page LLM-friendly markdown is served from `_llms-txt/<slug>.txt`.
+
+When adding a new docs page, keep the frontmatter `description:` ≤120 chars so it lands cleanly in `llms.txt`.
+
+## Deploy
+
+Cloudflare Workers static assets. The build output (`dist/`) is uploaded as `[assets]` via the `wrangler.toml` config:
+
+```bash
+yarn build
+wrangler deploy
+```
+
+Cloudflare Pages git integration also auto-deploys `main` on push if connected to the repo — that's the usual path. Manual `wrangler deploy` is the fallback when the auto-build is broken or for a hotfix.
+
+`/install`, `/uninstall`, and `/docs` redirects live in `public/_redirects` and resolve at the Cloudflare edge before hitting the worker.
+
+## When to update what
+
+- **A new release in the main repo** that changes user-visible behaviour → update `quickstart`, `self-hosting`, `concepts`, `updating`, the relevant `reference/cli/<command>` pages, and the relevant `under-the-hood/<topic>` page. The homepage benchmark numbers in `src/components/Features.astro` get re-measured before each tagged release.
+- **A new under-the-hood topic** (storage, thermal, etc.) → add the page to `src/content/docs/docs/under-the-hood/` and register it in the sidebar in `astro.config.mjs`.
+- **A new CLI command** → stamp the template, slot into the sidebar, cross-link from the relevant how-to page in `managing/`.
+- **A redirect for a moved page** → add to `astro.config.mjs`'s `redirects` block. The git history at the redirect entry is the audit trail for why the rename happened.
+
+## Conventions worth knowing
+
+- **MDX vs MD**: use `.mdx` for under-the-hood pages that need Astro components (architecture diagrams, expandable callouts). Use plain `.md` everywhere else — it's faster to author and renders identically.
+- **Code references go to `main`**, not a tag — links from prose to `cmd/lohar/spawn.go#L42` use `blob/main/...`. This drifts over time; that's the trade-off for not having to update every link on every release.
+- **Em-dashes are real `—` (U+2014)**, not `--`. The `_headers` file ensures the right charset is served so they don't mangle.
+- **Homepage benchmark numbers are explicit about hardware** — every measurement on the homepage says "Hetzner AX102" or "Pi 5", because the difference matters. Don't aggregate across hardware.
+
+## See also
+
+- [`sahil-shubham/bhatti`](https://github.com/sahil-shubham/bhatti) — the main repo (daemon, agent, CLI, install scripts)
+- [`docs/internal/`](https://github.com/sahil-shubham/bhatti/tree/main/docs/internal) — pre-implementation design notes (gitignored; working surface only)
+- [`docs/archive/`](https://github.com/sahil-shubham/bhatti/tree/main/docs/archive) — shipped design docs and investigation logs (the long-form companions to the under-the-hood pages on this site)
