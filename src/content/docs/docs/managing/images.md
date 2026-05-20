@@ -9,12 +9,14 @@ The full CLI surface is in [Images reference](/docs/reference/cli/images/). This
 
 ## Built-in tiers
 
-| Tier | What's in it | Size |
-| ---- | ------------ | ---- |
-| `minimal` | Bare Ubuntu 24.04 + curl + fuse3 | ~200 MB |
-| `browser` | + Chromium, Playwright, Node 22 | ~600 MB |
-| `docker` | + Docker Engine | ~550 MB |
-| `computer` | + XFCE desktop, KasmVNC, Chromium | ~1.5 GB |
+bhatti ships four built-in tiers. Each is a pre-built Ubuntu 24.04 rootfs that builds on top of `minimal`:
+
+| Tier | Adds | Size |
+| ---- | ---- | ----:|
+| [`minimal`](/docs/managing/tiers/) | (base) | ~200 MB |
+| [`browser`](/docs/managing/tiers/browser/) | Chromium, Playwright, Node 22 | ~600 MB |
+| [`docker`](/docs/managing/tiers/docker/) | Docker Engine, buildx, compose, binfmt | ~550 MB |
+| [`computer`](/docs/managing/tiers/computer/) | XFCE, KasmVNC, Chromium, full desktop | ~1.5 GB |
 
 ```bash
 bhatti create --name scraper --image browser
@@ -22,6 +24,8 @@ bhatti create --name ci --image docker
 ```
 
 The server install prompts for one tier on first run; install more later with `sudo bhatti update --tiers all` (or a comma-separated list). Tiers are auto-discovered from `<data_dir>/images/rootfs-<tier>-<arch>.ext4` — no hardcoded list.
+
+The deep dive for each tier — how its long-running daemons are managed, what env knobs you can pass, sizing, troubleshooting — lives at [Tiers](/docs/managing/tiers/). The rest of this page is about images you build *on top* of those tiers.
 
 ## Building custom images
 
@@ -87,5 +91,6 @@ System tier images (`minimal`, `browser`, …) are visible to everyone on the se
 
 ## See also
 
+- [Tiers](/docs/managing/tiers/) — the four built-in starting points, with per-tier deep dives
 - [Images reference](/docs/reference/cli/images/) — every command
 - [Adding a tier](/docs/contributing/adding-a-tier/) — build a new system tier

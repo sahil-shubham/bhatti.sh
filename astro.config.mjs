@@ -144,7 +144,17 @@ export default defineConfig({
                         { label: 'Users & Auth', slug: 'docs/managing/users' },
                         { label: 'Secrets', slug: 'docs/managing/secrets' },
                         { label: 'Volumes', slug: 'docs/managing/volumes' },
-                        { label: 'Images & Tiers', slug: 'docs/managing/images' },
+                        { label: 'Images', slug: 'docs/managing/images' },
+                        {
+                            label: 'Tiers',
+                            collapsed: true,
+                            items: [
+                                { label: 'Overview', slug: 'docs/managing/tiers' },
+                                { label: 'Docker', slug: 'docs/managing/tiers/docker' },
+                                { label: 'Browser', slug: 'docs/managing/tiers/browser' },
+                                { label: 'Computer', slug: 'docs/managing/tiers/computer' },
+                            ],
+                        },
                         { label: 'Custom Domain', slug: 'docs/managing/custom-domain' },
                     ],
                 },
