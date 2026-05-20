@@ -24,21 +24,34 @@ Playwright's `headless_shell` is used rather than full Chrome — it's the dedic
 
 ## How Chromium is started
 
-Today, by `/etc/bhatti/init.sh` at boot, which backgrounds `headless_shell` with these flags:
+Managed by lohar's `systemctl` shim as `headless-chrome.service` (since v1.11.9). The unit ships with these defaults:
 
-```sh
---no-sandbox
---disable-gpu
---disable-dev-shm-usage
---remote-debugging-port=9222
---remote-debugging-address=0.0.0.0
+```ini
+[Service]
+Type=simple
+Environment=CHROME_REMOTE_PORT=9222
+Environment=CHROME_FLAGS=
+EnvironmentFile=-/run/bhatti/config-env
+ExecStart=/root/.cache/ms-playwright/chromium_headless_shell-<rev>/chrome-linux/headless_shell \
+    --no-sandbox \
+    --disable-gpu \
+    --disable-dev-shm-usage \
+    --remote-debugging-port=${CHROME_REMOTE_PORT} \
+    --remote-debugging-address=0.0.0.0 \
+    $CHROME_FLAGS
+Restart=on-failure
+RestartSec=2s
 ```
 
-After launching, init.sh polls `http://127.0.0.1:9222/json/version` for up to 5 seconds; if CDP isn't accepting connections, it logs a warning but doesn't fail boot.
+The path to `headless_shell` is resolved at build time by the tier script (Playwright stamps a version-suffixed directory) and baked into the unit. Operator UX is the same as every other tier:
 
-:::caution
-This tier still uses the legacy `init.sh` boot path. The [docker tier](./docker/) and [computer tier](./computer/) (partially) have been moved to lohar's `systemctl` shim — `headless-chrome.service` will join them in a subsequent patch. When that lands, the user-visible behaviour is unchanged (`http://localhost:9222` still works the same way) but you'll be able to `systemctl status headless-chrome` and `systemctl restart headless-chrome` like every other managed daemon, and `Restart=on-failure` will resurrect Chromium after a crash. Until then, a crashed Chromium stays dead — you can manually restart with `bhatti exec <name> -- /etc/bhatti/init.sh`.
-:::
+```bash
+bhatti exec scraper -- systemctl status headless-chrome
+bhatti exec scraper -- journalctl -u headless-chrome -n 50
+bhatti exec scraper -- systemctl restart headless-chrome
+```
+
+If Chromium crashes, the shim restarts it after 2 s. The crash + restart show up in `journalctl -u headless-chrome`.
 
 ## Driving it from outside the sandbox
 
@@ -82,14 +95,28 @@ The Playwright globals (`chromium`, `firefox`, `webkit`) all work, but only Chro
 
 ## Tunables
 
-Today, none — flags are baked into `init.sh`. After the systemd-unit conversion, the planned env knobs are:
+Set at create time via `bhatti create --env K=V,K=V`. The values flow into the unit through lohar's [config-env bridge](/docs/under-the-hood/lohar-the-blacksmith/#config-env-bridge):
 
 | Variable | Default | Effect |
 |---|---|---|
-| `CHROME_REMOTE_PORT` | 9222 | CDP port to listen on |
-| `CHROME_FLAGS` | "" | Extra space-separated flags appended to ExecStart (e.g. `--user-agent=…`, `--proxy-server=…`) |
+| `CHROME_REMOTE_PORT` | `9222` | CDP port to listen on |
+| `CHROME_FLAGS` | `""` | Extra space-separated flags appended to ExecStart (`--user-agent=…`, `--proxy-server=…`, `--lang=…`, etc.) |
 
-If you need custom flags today, edit `/etc/bhatti/init.sh` inside the sandbox and re-run it, or `bhatti exec --env CHROME_FLAGS=…` after invoking `headless_shell` yourself.
+```bash
+bhatti create --name scraper --image browser \
+    --env "CHROME_FLAGS=--user-agent=Mozilla/5.0 (compatible; bhatti-bot/1.0)"
+```
+
+To edit flags on a running sandbox, drop a unit override and restart:
+
+```bash
+bhatti exec scraper -- sudo mkdir -p /etc/systemd/system/headless-chrome.service.d
+bhatti exec scraper -- sudo tee /etc/systemd/system/headless-chrome.service.d/custom.conf <<'EOF'
+[Service]
+Environment=CHROME_FLAGS=--proxy-server=http://my-proxy:3128
+EOF
+bhatti exec scraper -- sudo systemctl restart headless-chrome
+```
 
 ## Sizing
 
@@ -105,10 +132,11 @@ Chromium is memory-hungry — 512 MB will OOM on any non-trivial page. The 1 GB 
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `curl /json/version` returns connection refused | Chromium failed to start at boot (zombie pid file, OOM, missing deps) | `bhatti exec <name> -- ps -ef | grep headless`. If missing, rerun `/etc/bhatti/init.sh`. |
-| Chromium crashed mid-session | currently no auto-restart on this tier | re-run `/etc/bhatti/init.sh`; will become `systemctl restart headless-chrome` after the unit conversion |
+| `curl /json/version` returns connection refused | Chromium failed to start at boot | `systemctl status headless-chrome`; `journalctl -u headless-chrome` for the crash reason |
+| Chromium crashed mid-session | crash recovered via `Restart=on-failure`, but flapping if it crashes repeatedly | `systemctl status headless-chrome` shows `(activating)` if currently restarting, `(failed)` if start-limit hit; `journalctl -u headless-chrome` for the underlying error |
 | Pages OOM with `Aw, Snap!` | Memory too low | bump `--memory` to 2048+ |
-| `chrome-sandbox` permission errors | `--no-sandbox` not on; rare since it's baked in | confirm init.sh hasn't been edited |
+| `chrome-sandbox` permission errors | `--no-sandbox` got dropped from a custom drop-in | check `/etc/systemd/system/headless-chrome.service.d/` — the upstream unit always passes `--no-sandbox` |
+| CHROME_FLAGS not picked up | `--env` syntax: must be comma-separated, not repeated `--env` flags | `bhatti create --env "K1=V1,K2=V2"` (single string, comma-separated) |
 
 ## See also
 

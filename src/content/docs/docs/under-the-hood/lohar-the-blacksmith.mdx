@@ -461,6 +461,40 @@ even if a secret with the same name was set on the sandbox. This is
 deliberate: the per-request env wins so you can override secrets in CI
 or locally without rotating them.
 
+### Config-env bridge
+
+Layer 2 above — the config-drive env from `bhatti create --env K=V,K=V` —
+reaches `bhatti exec` natively because exec merges from `configEnv` in
+memory. To reach *units* started by the systemctl shim, lohar
+additionally serialises `configEnv` to `/run/bhatti/config-env` as
+canonical `KEY=VALUE` lines, after the config drive is applied and
+before `startEnabledServices` runs. Unit files opt in with:
+
+```ini
+[Service]
+EnvironmentFile=-/run/bhatti/config-env
+```
+
+The leading `-` makes the file optional, so units in `minimal`-derived
+rootfs images without any `--env` flags still boot cleanly.
+
+This is how every tier's tunables work in v1.11.8+:
+
+- `docker` tier: dockerd inherits `DOCKER_*` env vars at process start.
+- `browser` tier: `CHROME_REMOTE_PORT` and `CHROME_FLAGS` expand inside
+  `headless-chrome.service`'s ExecStart.
+- `computer` tier: `DISPLAY_WIDTH`, `KASM_FRAMERATE`, etc. flow into
+  `kasmvnc.service`'s ExecStart and override the unit's own
+  `Environment=` defaults (`EnvironmentFile=` always wins over
+  `Environment=` in systemd's precedence rules; the shim matches).
+
+User-supplied values **always win** over tier defaults because the
+config-env file is written before any service starts; the unit's
+`Environment=` defaults are loaded first, then `EnvironmentFile=`
+overrides matching keys. (One subtlety: `kasmvnc-firstboot.service`
+appends a computed `KASM_THREADS=$((nproc-1))` to `config-env` only if
+the key isn't already present, preserving user precedence.)
+
 ## File operations
 
 The agent owns file ops because `cat | exec` is slow, awkward, and

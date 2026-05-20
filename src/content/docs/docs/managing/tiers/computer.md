@@ -97,19 +97,52 @@ bhatti exec desk -- xdotool type "hello world"
 
 ## How the desktop is started
 
-Today, by `/etc/bhatti/init.sh`, in this order:
+Managed by lohar's `systemctl` shim as four units (since v1.11.9), replacing the monolithic `init.sh`:
 
-1. **First-boot credential generation** (idempotent — only runs if `/root/.kasmpasswd` is missing).
-2. **`Xkasmvnc :99`** — combined X server + RFB-over-WebSocket. Listens on `:6080`.
-3. **`dbus-daemon --system --fork`** — Chromium and some XFCE components want a system bus.
-4. **`dbus-launch`** — session bus.
-5. **`pulseaudio`** — dummy audio sink (non-fatal if it fails).
-6. **`startxfce4`** — the desktop session.
-7. Write `DISPLAY=:99` to `/run/bhatti/env` so `bhatti exec` inherits it.
+| Unit | Type | Purpose |
+|---|---|---|
+| `kasmvnc-firstboot.service` | `oneshot` | Per-sandbox password generation + dynamic `KASM_THREADS` default. `ConditionPathExists=!/root/.kasmpasswd` makes it idempotent on snapshot/resume. |
+| `kasmvnc.service` | `simple` | `Xkasmvnc :99` — combined X server + RFB-over-WebSocket gateway. Listens on port 6080. `After=kasmvnc-firstboot.service`. `Restart=on-failure`. |
+| `xfce-session.service` | `simple` | `startxfce4` desktop session. `After=` + `Requires=kasmvnc.service` so killing the X server cascades. `Restart=on-failure`. |
+| `bhatti-display-env.service` | `oneshot` | Writes `DISPLAY=:99` to `/run/bhatti/env` so `bhatti exec` inherits it. |
 
-:::caution
-This tier currently uses the legacy `init.sh` boot path. The planned conversion (per `PLAN-tiers-systemd.md`) splits it into four units — `kasmvnc-firstboot.service` (oneshot), `kasmvnc.service`, `xfce-session.service`, `bhatti-display-env.service` — and intentionally **drops the freestanding `dbus-daemon`** because a long-lived dbus daemon adds inotify watches, epoll sets, and per-connection timers that don't survive Firecracker snapshot/restore cleanly on ARM64. After the conversion, `systemctl status kasmvnc xfce-session` will report individual unit health, `systemctl restart kasmvnc` will rebuild the desktop without losing the sandbox, and crashed components will auto-restart via `Restart=on-failure`. The user-visible behaviour (port 6080, the helpers above) stays the same.
-:::
+Activation order at boot: `kasmvnc-firstboot` and `bhatti-display-env` start in the first wave (no `After=`), then `kasmvnc.service`, then `xfce-session.service`.
+
+Operator UX:
+
+```bash
+bhatti exec desk -- systemctl status kasmvnc xfce-session
+bhatti exec desk -- journalctl -u kasmvnc -n 50
+bhatti exec desk -- systemctl restart kasmvnc      # cascades: xfce restarts too
+bhatti exec desk -- systemctl restart xfce-session # just the desktop, X server stays
+```
+
+### What's deliberately not running
+
+The pre-v1.11.9 `init.sh` started a system `dbus-daemon`, an orphan session bus via `dbus-launch`, and `pulseaudio`. None of those are started in the systemd-unit model. The reasoning:
+
+- **`dbus-daemon --system`** keeps long-lived inotify watches on `/etc/dbus-1/`, an epoll on its listening socket, and per-connection timers. Firecracker snapshot/restore doesn't preserve all kernel-side poller state cleanly on ARM64 — the same reason lohar runs as PID 1 instead of real systemd ([Decisions & learnings](/docs/under-the-hood/decisions/)).
+- **`dbus-launch`** in the original init.sh ran a session bus tied to the boot shell's scope, leaked its address into the `startxfce4` env, and orphaned when init.sh exited. A bug, not a feature. Modern XFCE (4.16+) launches its own per-session bus on demand when it actually needs one.
+- **`pulseaudio`** wasn't connected to any sink and no documented agent flow uses audio.
+
+The `dbus` and `dbus-x11` packages stay installed (libdbus links from XFCE / Chromium), they're just not auto-started as a system bus. Practical fallout: a few `xfsettingsd` warnings on first XFCE start, Thunar's D-Bus activation paths are skipped, Chromium's notifications and password-manager features are unavailable. The desktop still loads.
+
+If you need a system dbus for an app that depends on it, the narrowest fix is to scope it to xfce-session's lifecycle rather than running at multi-user.target — so the snapshot-risk window is only "while xfce is up":
+
+```ini
+# /etc/systemd/system/dbus-system.service (drop in via the sandbox)
+[Unit]
+Description=System bus for xfce
+Before=xfce-session.service
+
+[Service]
+Type=forking
+PIDFile=/run/dbus/pid
+ExecStartPre=/bin/mkdir -p /run/dbus
+ExecStart=/usr/bin/dbus-daemon --system --fork
+```
+
+Then `systemctl enable --now dbus-system.service`. We don't ship this by default.
 
 ## Sizing
 
