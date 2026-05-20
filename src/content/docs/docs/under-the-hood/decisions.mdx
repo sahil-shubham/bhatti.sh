@@ -44,6 +44,14 @@ WaitReady total:    1023ms
 The host-side work is 207 ms. The remaining ~1000 ms is the TCP
 SYN-retransmit timer.
 
+The `rootfs_copy` row is on btrfs with reflink — 14 ms is the
+metadata-only `BTRFS_IOC_CLONE` ioctl. On ext4 the same `cp
+--reflink=auto` falls back to a real sparse copy and the row jumps
+to ~320 ms; the host-side total goes from 207 ms to ~500 ms. See
+[Storage](/docs/under-the-hood/storage/) for the filesystem story
+that sits underneath every "how fast is `bhatti create`?"
+conversation.
+
 What's happening: after `InstanceStart`, the host immediately starts
 polling TCP :1024 with `exec true` to detect when the agent is up.
 The agent isn't up yet — the kernel is still booting. The host

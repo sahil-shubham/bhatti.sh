@@ -26,6 +26,59 @@ I run on:
 Both are linked from the homepage benchmark. Anything in that
 ballpark or stronger works.
 
+## Filesystem (recommended: btrfs)
+
+bhatti's `bhatti create`, snapshot create, and snapshot resume paths
+all lean on `cp --reflink=auto --sparse=always` for block-device
+copies
+([`pkg/engine/firecracker/fc.go::copyBlock`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/fc.go#L236)).
+On **btrfs** or **xfs** this is a metadata-only CoW clone — instant,
+near-zero disk. On **ext4** it falls back to a full sparse copy. Same
+correctness; very different time and disk cost. **The performance
+numbers on the homepage are measured on btrfs and don't apply on
+ext4.** See [Storage](/docs/under-the-hood/storage/) for the
+cost-by-filesystem breakdown.
+
+The minimum viable setup is a btrfs loopback file. Do this **before**
+running the install script, so `/var/lib/bhatti` is already btrfs when
+the daemon first writes to it:
+
+```bash
+# Pre-install setup. 500 GiB is sized for tens to low-hundreds of
+# sandboxes; adjust to your disk. fallocate is instant on btrfs/xfs
+# hosts (just reserves space, no zero-write).
+sudo fallocate -l 500G /var/lib/bhatti-btrfs.img
+sudo mkfs.btrfs -f /var/lib/bhatti-btrfs.img
+sudo mkdir -p /var/lib/bhatti
+sudo mount -o loop,noatime,compress=zstd:1 \
+     /var/lib/bhatti-btrfs.img /var/lib/bhatti
+echo '/var/lib/bhatti-btrfs.img /var/lib/bhatti btrfs loop,noatime,compress=zstd:1 0 0' \
+     | sudo tee -a /etc/fstab
+```
+
+Loopback because it works on any host — you don't need a spare
+partition or a repartition. Native btrfs on `/var/lib/bhatti`'s
+underlying device is preferred on multi-disk hosts; the install
+works the same way.
+
+If bhatti is already running on ext4 and you want to switch, you'll
+need to stop the daemon and rsync the data dir across. The archived
+[migration
+recipe](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/MIGRATION-v0.5.14-btrfs.md)
+in the monorepo walks through that path; expect ~10–15 minutes of
+downtime.
+
+xfs also supports reflink and is a fine alternative if btrfs
+stability is a concern. xfs lacks transparent compression — you'll
+get reflink savings but not the additional ~2× from zstd on
+`mem.snap` files.
+
+If you must run on ext4, the system works correctly — only
+performance and disk usage are worse. See
+[Storage → What changes on
+ext4](/docs/under-the-hood/storage/#what-changes-on-ext4) for the
+concrete cost.
+
 ## Install
 
 ```bash

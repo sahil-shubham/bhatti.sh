@@ -30,6 +30,48 @@ When a sandbox is created with `--secret API_KEY`:
 
 The config drive is unmounted after boot so the value isn't readable from the running rootfs without lohar's help.
 
+## What happens on wake
+
+Nothing secret-related. Decryption happens exactly once, at sandbox
+*create*, when the daemon reads the ciphertext from SQLite, decrypts
+it with the age key on disk, and writes the plaintext into the
+config drive (`config.ext4`). From that moment on, the secret lives
+as bytes in guest RAM and is captured into `mem.snap` on snapshot.
+
+When a [cold sandbox wakes](/docs/under-the-hood/thermal-states/#cold--hot):
+
+- The server does **not** re-read from SQLite.
+- It does **not** load the age key.
+- It does **not** rewrite the config drive.
+- It loads `mem.snap` into a fresh Firecracker process and resumes.
+  The env vars are already in the guest's process memory.
+
+The age key (`<data_dir>/age.key`) is only loaded on an explicit
+encrypt or decrypt call — `bhatti secret set` or
+`bhatti create --secret`. It is **not** kept in long-lived daemon
+memory.
+
+This matters for latency: a cold wake doesn't pay any
+secret-reconstruction cost. The 360 ms p50 number on the homepage
+is dominated by the `mem.snap` disk read, not by anything
+secret-handling — see [Storage → Cold wake and the page
+cache](/docs/under-the-hood/storage/#cold-wake-and-the-page-cache).
+
+### Threat model
+
+- **Stolen `bhatti.db`**: safe (ciphertext only, no key).
+- **Cross-tenant access**: safe (per-user scoping + auth).
+- **Stolen `bhatti.db` + `age.key` together**: not safe; both files
+  live in `<data_dir>` and an attacker with filesystem access has
+  everything.
+- **Host root compromise**: not safe.
+- **`mem.snap` exfiltration**: not safe; secrets are env vars in
+  guest RAM and `mem.snap` is unencrypted on disk.
+
+The host root is the trust boundary, same as Vault-on-a-box. If you
+need to weaken that — wrap `age.key` in KMS/HSM. We do not
+currently support that; it's an open design question.
+
 ## Env var priority inside a sandbox
 
 When a command runs, env vars resolve in this order — later wins:

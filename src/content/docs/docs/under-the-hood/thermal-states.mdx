@@ -80,7 +80,7 @@ snapshotting.
    Hot ────────────────────► Warm ──────────────────────────► Cold
     ▲                       │                             │
     │                       │                             │
-    │    warm wake ~2 ms    │      cold wake ~42 ms       │
+    │    warm wake ~2 ms    │      cold wake (see below)  │
     └───────────────────────┴─────────────────────────────┘
                         any API request
 ```
@@ -89,12 +89,23 @@ snapshotting.
 |---|---|---|---|---|
 | **Hot**  | alive       | running | full | — |
 | **Warm** | alive       | paused  | ~50% (balloon inflated) | ~2 ms p50 |
-| **Cold** | dead        | —       | 0 (snapshot on disk) | ~42 ms p50 |
+| **Cold** | dead        | —       | 0 (snapshot on disk) | see below |
 
-Resume timings are p50 from the homepage benchmark, measured on a
-Hetzner AX102 (Ryzen 9, NVMe). Slower hardware (a Raspberry Pi 5
-with its capped NVMe) gets proportionally slower numbers; the shape
-of the state machine is the same.
+Warm resume is the homepage benchmark number, measured on Hetzner
+AX102 (Ryzen 9, NVMe). It's a one-API-call resume from a paused VM
+— the FC process is alive, the guest pages are still in host RAM,
+no disk read is needed.
+
+Cold resume has its own breakdown because it spans more than one
+thing: spawn a fresh FC process, read `mem.snap` from disk, restore
+the VM, wait for the agent to respond. How much of that disk read
+hits the page cache vs. SSD depends on how recently the sandbox went
+cold and what else is happening on the host. See [What "cold wake"
+actually costs](#what-cold-wake-actually-costs) below.
+
+Slower hardware (a Raspberry Pi 5 with its capped NVMe) gets
+proportionally slower numbers across the board; the shape of the
+state machine is the same.
 
 Transitions happen automatically. Every API call to a sandbox runs
 through
@@ -102,7 +113,42 @@ through
 first. If the sandbox is warm it resumes in milliseconds. If cold, it
 loads the snapshot, then your operation runs. From an API client's
 perspective, every sandbox is always "running" — the resume is just
-the first ~42 ms of latency on the first call after it went cold.
+the first slice of latency on the first call after it went cold.
+
+### What "cold wake" actually costs
+
+Cold wake numbers in earlier versions of this page said "~42 ms p50."
+That's the *orchestration-only* number — `bhatti start` returning,
+with `mem.snap` still hot in page cache from the snapshot we just
+wrote. The homepage benchmark, which measures end-to-end from an
+HTTP request to a response through the public proxy, says
+**360 ms p50 / 430 ms p99**. The two numbers measure different
+things; both are real.
+
+Measurements on `agni-01` (10 samples each, raw curl to
+`/sandboxes/.../exec`, 1024 MB sandbox, btrfs + zstd:1):
+
+| Scenario | Median exec | Notes |
+|---|---|---|
+| **Hot page cache** (`sync` between runs) | **57–78 ms** | `mem.snap` still resident; only the FC process needs to spin up |
+| **Cold page cache** (`sync && drop_caches`) | **186–342 ms** | Full disk read of `mem.snap` working set |
+| **Production-realistic** (concurrent traffic on the proxy) | **~400 ms** | Matches the homepage 360 ms p50 / 430 ms p99 |
+| **`keep_hot=true`** (no thermal management) | 13–14 ms | Sandbox never goes cold |
+
+The gap between the two-digit and three-digit numbers is the disk
+read of `mem.snap`. With page cache hot, the kernel has the working
+set already; FC starts in tens of ms and resume is fast. With page
+cache cold, the read happens for real. Twenty-five minutes of memory
+pressure between snapshot write and resume is enough to evict most of
+the relevant pages on a busy host.
+
+Full methodology, raw data, and what we don't yet know are at
+[`INVESTIGATION-cold-wake-cache.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/INVESTIGATION-cold-wake-cache.md).
+The page cache framing belongs as much to the storage layer as to
+the thermal layer — see [Storage → Cold wake and the page
+cache](/docs/under-the-hood/storage/#cold-wake-and-the-page-cache)
+for the wider context (compression ratios, ext4 fallback, what's not
+tested).
 
 You can opt out per sandbox with `bhatti create --keep-hot` on
 creation, or `bhatti edit <name> --keep-hot` later. A keep-hot
@@ -290,11 +336,16 @@ Any API call to a cold sandbox triggers `EnsureHot`, which calls
    response, the sandbox is hot. If we don't, the sandbox is marked
    `restoreFailed`.
 
-A successful cold→hot resume is ~42 ms p50 on Hetzner (homepage
-benchmark). Most of that is the snapshot file read; the FC API
-call itself returns in tens of milliseconds. The kernel and the
-guest's processes don't restart — they pick up exactly where they
-were.
+A successful cold→hot resume is 57–78 ms with a hot page cache and
+186–342 ms with it cold (`agni-01`, btrfs + zstd:1, 1024 MB sandbox).
+The host-side homepage benchmark sees 360 ms p50 / 430 ms p99
+end-to-end through the public proxy. Most of the cold-cache cost is
+the `mem.snap` read; the FC API call itself returns in tens of
+milliseconds. The kernel and the guest's processes don't restart —
+they pick up exactly where they were. See [the cold-wake breakdown
+above](#what-cold-wake-actually-costs) and [Storage → Cold wake and
+the page cache](/docs/under-the-hood/storage/#cold-wake-and-the-page-cache)
+for the full picture.
 
 ### When restore fails
 

@@ -280,7 +280,10 @@ vm.snap             VM state snapshot (only when cold)
 
 The CoW copy uses `cp --reflink=auto`. On btrfs or XFS this is
 instant and near-zero disk; on ext4 it falls back to a full copy.
-If you're benchmarking `bhatti create`, run on btrfs.
+If you're benchmarking `bhatti create`, run on btrfs. See
+[Storage](/docs/under-the-hood/storage/) for the cost-by-filesystem
+breakdown, compression ratios, and the page-cache story for cold
+wake.
 
 **Other disk locations under `/var/lib/bhatti/`:**
 

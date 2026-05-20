@@ -169,6 +169,7 @@ export default defineConfig({
                         { label: 'Firecracker engine internals', slug: 'docs/under-the-hood/engine' },
                         { label: 'Lohar: the agent inside every VM', slug: 'docs/under-the-hood/lohar-the-blacksmith' },
                         { label: 'Thermal states', slug: 'docs/under-the-hood/thermal-states' },
+                        { label: 'Storage', slug: 'docs/under-the-hood/storage' },
                         { label: 'Networking', slug: 'docs/under-the-hood/networking' },
                         { label: 'The wire protocol', slug: 'docs/under-the-hood/wire-protocol' },
                         { label: 'Decisions & learnings', slug: 'docs/under-the-hood/decisions' },
