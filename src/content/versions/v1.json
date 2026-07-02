@@ -1,0 +1,216 @@
+{
+  "sidebar": [
+    {
+      "label": "Getting Started",
+      "items": [
+        {
+          "label": "Quickstart",
+          "slug": "docs/quickstart"
+        },
+        {
+          "label": "Self-Hosting",
+          "slug": "docs/self-hosting"
+        },
+        {
+          "label": "Concepts",
+          "slug": "docs/concepts"
+        }
+      ]
+    },
+    {
+      "label": "Managing",
+      "items": [
+        {
+          "label": "Users & Auth",
+          "slug": "docs/managing/users"
+        },
+        {
+          "label": "Secrets",
+          "slug": "docs/managing/secrets"
+        },
+        {
+          "label": "Volumes",
+          "slug": "docs/managing/volumes"
+        },
+        {
+          "label": "Images",
+          "slug": "docs/managing/images"
+        },
+        {
+          "label": "Tiers",
+          "collapsed": true,
+          "items": [
+            {
+              "label": "Overview",
+              "slug": "docs/managing/tiers"
+            },
+            {
+              "label": "Docker",
+              "slug": "docs/managing/tiers/docker"
+            },
+            {
+              "label": "Browser",
+              "slug": "docs/managing/tiers/browser"
+            },
+            {
+              "label": "Computer",
+              "slug": "docs/managing/tiers/computer"
+            }
+          ]
+        },
+        {
+          "label": "Custom Domain",
+          "slug": "docs/managing/custom-domain"
+        }
+      ]
+    },
+    {
+      "label": "Updating & Uninstalling",
+      "slug": "docs/updating"
+    },
+    {
+      "label": "Under the Hood",
+      "items": [
+        {
+          "label": "Architecture overview",
+          "slug": "docs/under-the-hood/architecture"
+        },
+        {
+          "label": "Firecracker engine internals",
+          "slug": "docs/under-the-hood/engine"
+        },
+        {
+          "label": "Lohar: the agent inside every VM",
+          "slug": "docs/under-the-hood/lohar-the-blacksmith"
+        },
+        {
+          "label": "Thermal states",
+          "slug": "docs/under-the-hood/thermal-states"
+        },
+        {
+          "label": "Storage",
+          "slug": "docs/under-the-hood/storage"
+        },
+        {
+          "label": "Networking",
+          "slug": "docs/under-the-hood/networking"
+        },
+        {
+          "label": "The wire protocol",
+          "slug": "docs/under-the-hood/wire-protocol"
+        },
+        {
+          "label": "Decisions & learnings",
+          "slug": "docs/under-the-hood/decisions"
+        }
+      ]
+    },
+    {
+      "label": "Reference",
+      "items": [
+        {
+          "label": "API Reference",
+          "slug": "docs/reference/api"
+        },
+        {
+          "label": "CLI Overview",
+          "slug": "docs/reference/cli"
+        },
+        {
+          "label": "Sandbox",
+          "collapsed": true,
+          "autogenerate": {
+            "directory": "docs/reference/cli/sandbox",
+            "collapsed": true
+          }
+        },
+        {
+          "label": "Execution & shells",
+          "collapsed": true,
+          "autogenerate": {
+            "directory": "docs/reference/cli/exec",
+            "collapsed": true
+          }
+        },
+        {
+          "label": "Files",
+          "collapsed": true,
+          "autogenerate": {
+            "directory": "docs/reference/cli/files",
+            "collapsed": true
+          }
+        },
+        {
+          "label": "Networking & sharing",
+          "collapsed": true,
+          "autogenerate": {
+            "directory": "docs/reference/cli/networking",
+            "collapsed": true
+          }
+        },
+        {
+          "label": "Images",
+          "collapsed": true,
+          "autogenerate": {
+            "directory": "docs/reference/cli/images",
+            "collapsed": true
+          }
+        },
+        {
+          "label": "Volumes",
+          "collapsed": true,
+          "autogenerate": {
+            "directory": "docs/reference/cli/volumes",
+            "collapsed": true
+          }
+        },
+        {
+          "label": "Secrets",
+          "collapsed": true,
+          "autogenerate": {
+            "directory": "docs/reference/cli/secrets",
+            "collapsed": true
+          }
+        },
+        {
+          "label": "Snapshots",
+          "collapsed": true,
+          "autogenerate": {
+            "directory": "docs/reference/cli/snapshots",
+            "collapsed": true
+          }
+        },
+        {
+          "label": "Server & admin",
+          "collapsed": true,
+          "autogenerate": {
+            "directory": "docs/reference/cli/admin",
+            "collapsed": true
+          }
+        },
+        {
+          "label": "Configuration",
+          "slug": "docs/reference/config"
+        }
+      ]
+    },
+    {
+      "label": "Contributing",
+      "collapsed": true,
+      "items": [
+        {
+          "label": "Testing",
+          "slug": "docs/contributing/testing"
+        },
+        {
+          "label": "Building the Kernel",
+          "slug": "docs/contributing/kernel"
+        },
+        {
+          "label": "Adding a Tier",
+          "slug": "docs/contributing/adding-a-tier"
+        }
+      ]
+    }
+  ]
+}

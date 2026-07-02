@@ -1,5 +1,7 @@
 ---
-// Dark-only: suppress theme toggle.
-// Starlight expects this component to exist and be importable.
+// bhatti is dark-only, so there's no theme toggle. But starlight-versions injects
+// its version picker through the ThemeSelect slot — since we override ThemeSelect,
+// render the plugin's VersionSelect here ourselves (per the plugin's guidance).
+import VersionSelect from 'starlight-versions/components/VersionSelect.astro';
 ---
-<!-- intentionally empty — bhatti is dark-only -->
+<VersionSelect />

@@ -1,0 +1,119 @@
+---
+title: bhatti setup
+description: Configure the CLI's API endpoint and key. Saves to
+  ~/.bhatti/config.yaml. Interactive by default; --url and --token make it
+  scriptable.
+sidebar:
+  label: setup
+  order: 2
+slug: v1/docs/reference/cli/admin/setup
+---
+
+import Synopsis from '../../../../../../../components/docs/Synopsis.astro';
+import ParamRow from '../../../../../../../components/docs/ParamRow.astro';
+
+Configure the CLI's API endpoint and key.
+
+## Synopsis
+
+<Synopsis>bhatti setup \[--url URL] \[--token KEY]</Synopsis>
+
+## Description
+
+Writes the API endpoint and key to `~/.bhatti/config.yaml` and tests
+the connection by listing sandboxes. The auth test hits
+`GET /sandboxes` (an authenticated endpoint), so a bad key fails
+immediately instead of appearing to succeed.
+
+With no flags, runs interactively — prompts for endpoint and key,
+masks the key as you type. With `--url` and `--token`, runs
+non-interactively. Use the latter form for agents, CI scripts, and
+provisioning tools.
+
+You usually don't need to run this on the server itself: the install
+script (`curl -fsSL bhatti.sh/install | sudo bash`) creates the
+admin user and writes the config to your `$SUDO_USER`'s
+`~/.bhatti/config.yaml` automatically. Run `setup` on a different
+machine that you want to drive the server from, or to switch your
+local CLI to a different bhatti server.
+
+## Examples
+
+### Interactive (the default)
+
+```bash
+bhatti setup
+```
+
+```text
+API endpoint [http://localhost:8080]: https://api.bhatti.sh
+API key: <input is hidden>
+Saved to /home/alice/.bhatti/config.yaml
+Testing connection... ✓ authenticated (3 sandboxes)
+
+Enable completions:
+  echo 'source <(bhatti completion zsh)' >> ~/.zshrc
+```
+
+### Non-interactive (agents, CI, provisioners)
+
+```bash
+bhatti setup --url https://api.bhatti.sh --token bht_abc123
+```
+
+```text
+Saved to /home/alice/.bhatti/config.yaml
+Testing connection... ✓ authenticated (3 sandboxes)
+```
+
+The completions hint is suppressed — there's no human reading the
+output anyway. If the connection test fails, the command exits
+non-zero so your provisioner can detect the failure.
+
+## Options
+
+<ParamRow flag="--url" required="false" type="string">
+  API endpoint URL. Sets the prompt's default. With `--token` set
+  too, the prompt is skipped entirely and `setup` writes
+  immediately.
+</ParamRow>
+
+<ParamRow flag="--token" required="false" type="string">
+  API key. With `--url` set too, the prompt is skipped and `setup`
+  writes immediately.
+</ParamRow>
+
+The auth test always runs. If you need to write the config without
+contacting a server (pre-baking an image, for example), edit
+`~/.bhatti/config.yaml` directly — it's just two YAML keys.
+
+See [Global flags](/v1/docs/reference/cli/#global-flags) for `--url`,
+`--token` (the global versions of these — they override config but
+don't write to it; `setup`'s flags are the persisting form),
+`--json`, `--timing`, `--data-dir`.
+
+## Configuration file
+
+After `setup`, your config looks like:
+
+```yaml
+api_url: https://api.bhatti.sh
+auth_token: bht_abc123def456...
+```
+
+At runtime, this can be overridden with `--url`, `--token`,
+`BHATTI_URL`, or `BHATTI_TOKEN`. See
+[Configuration precedence](/v1/docs/reference/cli/#configuration-precedence).
+
+## See also
+
+* [`bhatti version`](/v1/docs/reference/cli/admin/version/) — check
+  connection without changing config
+* [`bhatti user create`](/v1/docs/reference/cli/admin/user-create/) —
+  create a user and get an API key (server-side, run by the
+  operator)
+* [`bhatti completion`](/v1/docs/reference/cli/admin/completion/) —
+  shell completions
+* [Configuration](/v1/docs/reference/config/) — full file format
+* [Self-hosting → adding teammates](/v1/docs/self-hosting/#adding-teammates)
+  — the full flow for setting someone up against a remote bhatti

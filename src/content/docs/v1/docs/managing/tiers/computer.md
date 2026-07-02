@@ -1,6 +1,7 @@
 ---
 title: Computer tier
 description: A full XFCE desktop in a microVM, served over KasmVNC on a single web port.
+slug: v1/docs/managing/tiers/computer
 ---
 
 The `computer` tier is a full graphical Linux desktop: KasmVNC + XFCE + Chromium, served over one HTTP/WebSocket port (`6080`) as a browser-based web client. The right tier for visual agent-driven work (a model that sees a real desktop), demos, and any scenario where "open a browser and look at it" is the interface.
@@ -14,7 +15,7 @@ bhatti exec desk -- vnc-creds          # username + password
 
 ## Why `--cpus 2` is the practical floor
 
-KasmVNC's encoder thread count is sized to the guest's vCPUs (`nproc - 1`, leaving one core for the desktop itself). On `--cpus 1` the encoder, the X server, XFCE, and Chromium all share one core — expect &lt;10 fps and laggy input. Two cores is usable; four is comfortable.
+KasmVNC's encoder thread count is sized to the guest's vCPUs (`nproc - 1`, leaving one core for the desktop itself). On `--cpus 1` the encoder, the X server, XFCE, and Chromium all share one core — expect \<10 fps and laggy input. Two cores is usable; four is comfortable.
 
 ## What's in it
 
@@ -29,10 +30,10 @@ KasmVNC's encoder thread count is sized to the guest's vCPUs (`nproc - 1`, leavi
 
 A random 16-character password is generated **on first boot of each sandbox** (not at image-bake time):
 
-- Hashed into `/root/.kasmpasswd` for KasmVNC.
-- Stored cleartext in `/root/.vnc/cleartext` (root-only, mode `0600`) for the `vnc-creds` helper.
-- Each sandbox gets its own; the published rootfs image carries no shared secret.
-- Snapshot/resume preserves the password (the file already exists; firstboot generation is skipped).
+* Hashed into `/root/.kasmpasswd` for KasmVNC.
+* Stored cleartext in `/root/.vnc/cleartext` (root-only, mode `0600`) for the `vnc-creds` helper.
+* Each sandbox gets its own; the published rootfs image carries no shared secret.
+* Snapshot/resume preserves the password (the file already exists; firstboot generation is skipped).
 
 Retrieve them anytime:
 
@@ -42,7 +43,7 @@ bhatti exec desk -- vnc-creds --json   # for scripts/agents
 ```
 
 :::caution
-[`bhatti image save`](/docs/reference/cli/images/save/) on a running computer-tier sandbox **bakes the current password into the saved image**. Treat saved-from-running images like any other secret-bearing artifact. If you share such an image, anyone with it has VNC access to every sandbox stamped from it. The clean alternative is to delete `/root/.kasmpasswd` and `/root/.vnc/cleartext` before saving, so firstboot regen kicks in on every new sandbox.
+[`bhatti image save`](/v1/docs/reference/cli/images/save/) on a running computer-tier sandbox **bakes the current password into the saved image**. Treat saved-from-running images like any other secret-bearing artifact. If you share such an image, anyone with it has VNC access to every sandbox stamped from it. The clean alternative is to delete `/root/.kasmpasswd` and `/root/.vnc/cleartext` before saving, so firstboot regen kicks in on every new sandbox.
 :::
 
 ## Tunables
@@ -68,9 +69,9 @@ bhatti create --name desk --image computer --cpus 4 --memory 4096 \
 
 KasmVNC has dozens of options bhatti deliberately doesn't surface (dynamic quality bounds, video-mode thresholds, scaling algorithms, DLP/clipboard policy, etc.). For those, edit `/etc/kasmvnc/kasmvnc.yaml` inside the sandbox and reconnect. The upstream docs are authoritative:
 
-- [Video rendering options](https://github.com/kasmtech/KasmVNC/wiki/Video-Rendering-Options)
-- [Stats / control API](https://github.com/kasmtech/KasmVNC/wiki/API)
-- [Browser-side tuning](https://github.com/kasmtech/KasmVNC/wiki/Browser-Support)
+* [Video rendering options](https://github.com/kasmtech/KasmVNC/wiki/Video-Rendering-Options)
+* [Stats / control API](https://github.com/kasmtech/KasmVNC/wiki/API)
+* [Browser-side tuning](https://github.com/kasmtech/KasmVNC/wiki/Browser-Support)
 
 ## Agent helpers
 
@@ -121,9 +122,9 @@ bhatti exec desk -- systemctl restart xfce-session # just the desktop, X server 
 
 The pre-v1.11.9 `init.sh` started a system `dbus-daemon`, an orphan session bus via `dbus-launch`, and `pulseaudio`. None of those are started in the systemd-unit model. The reasoning:
 
-- **`dbus-daemon --system`** keeps long-lived inotify watches on `/etc/dbus-1/`, an epoll on its listening socket, and per-connection timers. Firecracker snapshot/restore doesn't preserve all kernel-side poller state cleanly on ARM64 — the same reason lohar runs as PID 1 instead of real systemd ([Decisions & learnings](/docs/under-the-hood/decisions/)).
-- **`dbus-launch`** in the original init.sh ran a session bus tied to the boot shell's scope, leaked its address into the `startxfce4` env, and orphaned when init.sh exited. A bug, not a feature. Modern XFCE (4.16+) launches its own per-session bus on demand when it actually needs one.
-- **`pulseaudio`** wasn't connected to any sink and no documented agent flow uses audio.
+* **`dbus-daemon --system`** keeps long-lived inotify watches on `/etc/dbus-1/`, an epoll on its listening socket, and per-connection timers. Firecracker snapshot/restore doesn't preserve all kernel-side poller state cleanly on ARM64 — the same reason lohar runs as PID 1 instead of real systemd ([Decisions & learnings](/v1/docs/under-the-hood/decisions/)).
+* **`dbus-launch`** in the original init.sh ran a session bus tied to the boot shell's scope, leaked its address into the `startxfce4` env, and orphaned when init.sh exited. A bug, not a feature. Modern XFCE (4.16+) launches its own per-session bus on demand when it actually needs one.
+* **`pulseaudio`** wasn't connected to any sink and no documented agent flow uses audio.
 
 The `dbus` and `dbus-x11` packages stay installed (libdbus links from XFCE / Chromium), they're just not auto-started as a system bus. Practical fallout: a few `xfsettingsd` warnings on first XFCE start, Thunar's D-Bus activation paths are skipped, Chromium's notifications and password-manager features are unavailable. The desktop still loads.
 
@@ -167,7 +168,7 @@ Then `systemctl enable --now dbus-system.service`. We don't ship this by default
 
 ## See also
 
-- [Tiers overview](/docs/managing/tiers/)
-- [`bhatti publish`](/docs/reference/cli/networking/publish/) — exposing port 6080 with a public URL
-- [`bhatti share`](/docs/reference/cli/networking/share/) — single-use authenticated session URLs (useful for VNC handoff)
-- [Thermal states](/docs/under-the-hood/thermal-states/) — `--keep-hot` for active sessions, to prevent the VM from pausing under your feet
+* [Tiers overview](/v1/docs/managing/tiers/)
+* [`bhatti publish`](/v1/docs/reference/cli/networking/publish/) — exposing port 6080 with a public URL
+* [`bhatti share`](/v1/docs/reference/cli/networking/share/) — single-use authenticated session URLs (useful for VNC handoff)
+* [Thermal states](/v1/docs/under-the-hood/thermal-states/) — `--keep-hot` for active sessions, to prevent the VM from pausing under your feet

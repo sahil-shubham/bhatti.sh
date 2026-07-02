@@ -1,0 +1,203 @@
+---
+title: Storage
+description: How bhatti stores sandbox state on disk — reflinks, compression,
+  page cache, and why btrfs is the recommended filesystem.
+slug: v1/docs/under-the-hood/storage
+---
+
+bhatti's storage layout is one of the most load-bearing design
+decisions in the system and the least visible. Every `bhatti create`,
+every snapshot, every resume from cold leans on assumptions about the
+underlying filesystem. On btrfs those assumptions are correct and the
+numbers we publish on the homepage hold. On ext4 the system still
+*works* — but the costs go up, sometimes by an order of magnitude.
+
+This page covers what's actually on disk per sandbox, the kernel
+primitives that make the costs small, and what changes on a
+filesystem that doesn't support reflinks.
+
+## What's on disk per sandbox
+
+Four files under `/var/lib/bhatti/sandboxes/<id>/`:
+
+```
+rootfs.ext4         CoW copy of the base rootfs (sparse-allocated)
+config.ext4         1 MiB ext4 with hostname, env, secrets, volume specs
+mem.snap            guest RAM dump (equal to configured memory; only when cold)
+vm.snap             KB-range VM device state (only when cold)
+```
+
+Plus shared resources elsewhere:
+
+* `/var/lib/bhatti/images/rootfs-<tier>-<arch>.ext4` — read-only base
+  rootfs templates. Every sandbox's `rootfs.ext4` is reflinked from
+  one of these.
+* `/var/lib/bhatti/volumes/<name>.ext4` — standalone volumes
+  (`bhatti volume create`), attached to one sandbox at a time.
+
+The `.ext4` files are virtio-blk-backed block devices from the guest's
+perspective. Their on-disk size is *sparse* — `ls -lh` reports the
+logical size, `du -h` reports what's actually allocated. The
+difference matters; see [Disk
+usage](/v1/docs/managing/images/#disk-usage) on the images page for the
+walkthrough.
+
+## How rootfs cloning works
+
+`bhatti create` calls
+[`copyBlock`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/fc.go#L236):
+
+```go
+exec.Command("cp", "--reflink=auto", "--sparse=always", src, dst).Run()
+```
+
+`--reflink=auto` means "use the kernel's `FICLONE`/`BTRFS_IOC_CLONE`
+ioctl if the filesystem supports it; otherwise fall back to a normal
+copy." Same source code, very different runtime cost:
+
+| Filesystem | Mechanism | Time | Disk used |
+|---|---|---|---|
+| **btrfs** | `BTRFS_IOC_CLONE` (metadata-only) | ~14 ms | one extent table entry; shares blocks with source |
+| **xfs** (with reflink=1) | `FICLONE` (metadata-only) | comparable | shares blocks; refcount btree |
+| **ext4** | sparse `read`/`write` loop | ~320 ms | physical copy of every used extent |
+
+The 14 ms / 320 ms numbers come from
+[`INVESTIGATION-create-performance.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/INVESTIGATION-create-performance.md)
+on `agni-01` (NVMe RAID-1, 1 GiB base rootfs).
+
+On btrfs the new sandbox `rootfs.ext4` shares extents with the base
+image until the sandbox writes a block, at which point CoW splits
+that block on first write. The read-only majority of every tier
+(`/usr`, `/lib`, package payloads) stays shared in the page cache
+across every sandbox built from the same image — one set of pages in
+RAM serves all of them.
+
+The same `copyBlock` runs for snapshot create
+([`snapshot.go:280`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/snapshot.go#L280))
+and for volume backups
+([`pkg/server/volume_handlers.go:271`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/server/volume_handlers.go#L271)).
+On btrfs every "expensive" copy in the system is metadata-only.
+
+## zstd on `mem.snap`
+
+The recommended btrfs mount option is
+`loop,noatime,compress=zstd:1` — transparent zstd at level 1 on every
+file in the data dir. `mem.snap` benefits dramatically because
+guest RAM is dominated by zero pages, deduplicated read-only kernel
+text, and other highly-compressible data.
+
+Production measurements from `agni-01`:
+
+| Artefact | Apparent | Physical | Ratio |
+|---|---|---|---|
+| One 1024 MB `mem.snap` | 1.0 GiB | **48 MiB** | 21× |
+| One stopped sandbox dir | 2.1 GiB | **176 MiB** | 12× |
+| All sandboxes, 63 sandboxes / 6 users | 571 GiB referenced | 95 GiB physical | **6×** combined |
+
+The 6× combined number factors in both reflink dedup (2.6×) and
+zstd (2.3×) across the whole data dir. You can inspect the breakdown
+yourself with `compsize` from `btrfs-progs`:
+
+```bash
+sudo compsize /var/lib/bhatti
+```
+
+It splits the report by file type (mostly ext4 block devices in our
+case) and shows what each compression algorithm achieved.
+
+Compression level `:1` is deliberate. Higher levels (zstd:3, zstd:5)
+get more compression at the cost of write throughput, which matters
+for snapshot create. Level 1 is roughly the same write speed as no
+compression while still hitting the 2× ratio on `mem.snap` — guest
+RAM is so compressible that a basic dictionary catches most of it.
+
+## Cold wake and the page cache
+
+When a sandbox is in the [Cold
+state](/v1/docs/under-the-hood/thermal-states/), its `mem.snap` is the
+only thing standing between "dead VM" and "fully restored guest." How
+much time the restore takes depends heavily on whether `mem.snap` is
+still in the host page cache.
+
+Measurements from `agni-01` (10 samples each, raw curl to
+`/sandboxes/.../exec`, 1024 MB sandbox, btrfs + zstd:1):
+
+| Scenario | Median exec | Notes |
+|---|---|---|
+| **Hot page cache** (`sync` between runs) | **57–78 ms** | `mem.snap` still resident; only the FC process needs to spin up |
+| **Cold page cache** (`sync && drop_caches`) | **186–342 ms** | Full disk read of `mem.snap` working set |
+| **Production-realistic** (concurrent traffic on the proxy) | **~400 ms** | Matches the homepage 360 ms p50 / 430 ms p99 |
+| **`keep_hot=true`** (no thermal management) | 13–14 ms | Sandbox never goes cold |
+
+The full investigation lives at
+[`INVESTIGATION-cold-wake-cache.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/INVESTIGATION-cold-wake-cache.md)
+in the monorepo.
+
+Bhatti doesn't currently bias eviction of `mem.snap` files in the
+page cache. Right after a snapshot is written, the pages are hot.
+Twenty-five minutes later, under memory pressure from a busy host,
+the kernel may have evicted them. The 360 ms p50 we publish accepts
+that as a fact of operating: in steady-state on a real host with
+real workloads, a cold wake reads `mem.snap` from disk.
+
+`posix_fadvise(POSIX_FADV_WILLNEED)` immediately before
+`/snapshot/load` is a possible future optimization — it hints to the
+kernel to start prefetching while FC's own startup runs in parallel.
+Bounded by demand and not yet measured to clear an LRU-eviction bar
+that matters; tracked for future work.
+
+## What changes on ext4
+
+bhatti works correctly on ext4. The system doesn't refuse to start,
+no sandbox fails to boot, no snapshot is unsafe. What changes is
+performance and disk usage:
+
+* **`bhatti create` is ~10× slower.** The rootfs copy is a real
+  `read`/`write` loop (320 ms vs. 14 ms on btrfs). For 1 GiB base
+  images this is hundreds of milliseconds of wall-clock per create;
+  for the 4 GiB computer-tier base it's seconds.
+* **Per-sandbox disk usage is linear.** Where btrfs's per-sandbox
+  delta is the bytes the sandbox actually writes (typically single-
+  digit MiB until you install something heavy), on ext4 each sandbox
+  carries a sparse copy of its rootfs.ext4 — the *used* extents of
+  the source, around 232 MiB for the computer tier. 10 sandboxes
+  ≈ 2.3 GiB vs. ~1.1 GiB on btrfs.
+* **No zstd compression.** `mem.snap` files are full-size on disk
+  (the configured memory size). One stopped 1 GiB sandbox is 1 GiB
+  on disk; on btrfs it's 48 MiB.
+* **Snapshot resume copies the block devices for real.** Slower
+  resume, more disk write per restore cycle.
+* **The performance numbers on the homepage don't apply.** Those
+  are measured on btrfs and don't reflect the ext4 cost cliff.
+
+If you must run on ext4, the system still works correctly. If you
+have a choice — and most self-hosters do, since loopback btrfs works
+on any host — choose btrfs. See [Filesystem
+(recommended: btrfs)](/v1/docs/self-hosting/#filesystem-recommended-btrfs)
+for the setup recipe.
+
+## xfs and others
+
+xfs with `reflink=1` also supports reflink. You'll get the create-
+time and disk-usage benefits but not the additional ~2× from zstd
+(xfs doesn't compress transparently). xfs's refcount btree degrades
+mildly for very high clone counts (thousands of sandboxes from one
+base image); btrfs handles arbitrary fanout.
+
+Other filesystems (zfs on Linux with `--reflink=auto` via OpenZFS
+2.2+, bcachefs) may also reflink — the `cp` falls back gracefully if
+the ioctl isn't supported. We haven't measured these in production.
+
+## See also
+
+* [Self-hosting → Filesystem
+  (recommended: btrfs)](/v1/docs/self-hosting/#filesystem-recommended-btrfs)
+  — the setup recipe
+* [Images → Disk
+  usage](/v1/docs/managing/images/#disk-usage) — what you see in
+  `/var/lib/bhatti/images/` and `/var/lib/bhatti/sandboxes/<id>/`
+* [Thermal states](/v1/docs/under-the-hood/thermal-states/) — the
+  state machine that decides when `mem.snap` gets written and read
+* [Architecture → Where state
+  lives](/v1/docs/under-the-hood/architecture/#where-state-lives) —
+  full inventory of `/var/lib/bhatti/`

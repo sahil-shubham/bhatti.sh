@@ -3,6 +3,7 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mdx from '@astrojs/mdx';
 import starlightLlmsTxt from 'starlight-llms-txt';
+import starlightVersions from 'starlight-versions';
 import { loadEnv } from 'vite';
 
 // astro.config.mjs runs in plain Node, so it doesn't see import.meta.env.
@@ -63,6 +64,8 @@ export default defineConfig({
             ],
             // Force dark mode — matches marketing site
             components: {
+                // Dark-only: our override renders starlight-versions' VersionSelect
+                // (the version picker) in place of the theme toggle.
                 ThemeSelect: './src/components/ThemeSelectOverride.astro',
                 SiteTitle: './src/components/SiteTitleOverride.astro',
             },
@@ -128,6 +131,15 @@ export default defineConfig({
                         },
                     ],
                 }),
+                // Freeze the current (Firecracker) docs as `v1`; the unversioned
+                // root is the in-progress v2 (krucible). See discussions/22.
+                // Current (unversioned) docs = v2 (krucible), in progress; `v1` is the
+                // frozen Firecracker snapshot. The version picker carries the signal
+                // (per-version banners aren't supported by the plugin).
+                starlightVersions({
+                    current: { label: 'v2 (dev)' },
+                    versions: [{ slug: 'v1', label: 'v1 (Firecracker)' }],
+                }),
             ],
             sidebar: [
                 {
@@ -192,47 +204,47 @@ export default defineConfig({
                         {
                             label: 'Sandbox',
                             collapsed: true,
-                            autogenerate: { directory: 'docs/reference/cli/sandbox', collapsed: true },
+                            items: [{ autogenerate: { directory: 'docs/reference/cli/sandbox', collapsed: true } }],
                         },
                         {
                             label: 'Execution & shells',
                             collapsed: true,
-                            autogenerate: { directory: 'docs/reference/cli/exec', collapsed: true },
+                            items: [{ autogenerate: { directory: 'docs/reference/cli/exec', collapsed: true } }],
                         },
                         {
                             label: 'Files',
                             collapsed: true,
-                            autogenerate: { directory: 'docs/reference/cli/files', collapsed: true },
+                            items: [{ autogenerate: { directory: 'docs/reference/cli/files', collapsed: true } }],
                         },
                         {
                             label: 'Networking & sharing',
                             collapsed: true,
-                            autogenerate: { directory: 'docs/reference/cli/networking', collapsed: true },
+                            items: [{ autogenerate: { directory: 'docs/reference/cli/networking', collapsed: true } }],
                         },
                         {
                             label: 'Images',
                             collapsed: true,
-                            autogenerate: { directory: 'docs/reference/cli/images', collapsed: true },
+                            items: [{ autogenerate: { directory: 'docs/reference/cli/images', collapsed: true } }],
                         },
                         {
                             label: 'Volumes',
                             collapsed: true,
-                            autogenerate: { directory: 'docs/reference/cli/volumes', collapsed: true },
+                            items: [{ autogenerate: { directory: 'docs/reference/cli/volumes', collapsed: true } }],
                         },
                         {
                             label: 'Secrets',
                             collapsed: true,
-                            autogenerate: { directory: 'docs/reference/cli/secrets', collapsed: true },
+                            items: [{ autogenerate: { directory: 'docs/reference/cli/secrets', collapsed: true } }],
                         },
                         {
                             label: 'Snapshots',
                             collapsed: true,
-                            autogenerate: { directory: 'docs/reference/cli/snapshots', collapsed: true },
+                            items: [{ autogenerate: { directory: 'docs/reference/cli/snapshots', collapsed: true } }],
                         },
                         {
                             label: 'Server & admin',
                             collapsed: true,
-                            autogenerate: { directory: 'docs/reference/cli/admin', collapsed: true },
+                            items: [{ autogenerate: { directory: 'docs/reference/cli/admin', collapsed: true } }],
                         },
                         { label: 'Configuration', slug: 'docs/reference/config' },
                     ],
