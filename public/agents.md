@@ -14,15 +14,17 @@ Don't pre-check the user's platform — `scripts/install.sh` does that
 and errors with fixable messages (KVM missing, root needed, unsupported
 arch). Your job is to pick the right `--mode` for the user's *intent*.
 
-**A. The user wants to run their own bhatti server.**
+**A. The user wants to run their own bhatti server (self-host).**
 
 ```bash
 curl -fsSL bhatti.sh/install | sudo bash -s -- --mode server --tier minimal
 ```
 
-The script enforces Linux + KVM + root and dies with a readable message
-if any are missing. On success it creates an admin user and writes
-`~/.bhatti/config.yaml` for `$SUDO_USER`. **No `bhatti setup` step
+Works on **Linux (KVM)** or **macOS (Apple Silicon, HVF)** — either can be a dev
+box or a server. The script preflights the hypervisor (KVM on Linux, HVF on
+Apple Silicon) and dies with a readable message if unsupported. On success it
+creates an admin user, writes `~/.bhatti/config.yaml` for `$SUDO_USER`, and
+starts the service (systemd on Linux, launchd on macOS). **No `bhatti setup` step
 needed afterwards.** Verify with:
 
 ```bash
@@ -314,7 +316,7 @@ Why this shape:
 | `409 name already exists` | Sandbox/volume name collision | Pick another name, or rely on idempotency: same `POST /sandboxes` returns the existing record with `X-Bhatti-Existing: true` |
 | `502 bad gateway` from a published URL | Process inside isn't listening on the port (yet, or any more) | `bhatti ports <name>` to confirm; `bhatti ps <name>` to find a crashed process |
 | `404 sandbox not found` | Wrong name, or already destroyed | `bhatti list` |
-| `bhatti create` hangs >30 s | Engine stuck or first-time image conversion | `journalctl -u bhatti -f` — watch for `firecracker` / image errors |
+| `bhatti create` hangs >30 s | Engine stuck or first-time image conversion | Linux: `journalctl -u bhatti -f`; macOS: `tail -f ~/.bhatti/bhatti.log` — watch for `bhatti-vmm` / image errors |
 | Exec returns 124 | Hit `--timeout` (default 300 s) | Re-run with a higher `--timeout`, or `--detach` for true long-runners |
 | Shell drops mid-stream | Idle PTY auto-disconnect | `bhatti shell <name>` — scrollback replays |
 | `501` from any backup endpoint | Server has no `backup:` block configured | Server-side fix; not a client bug |
@@ -323,7 +325,7 @@ Why this shape:
 
 ## Mental model in 6 lines
 
-1. A sandbox is a Firecracker microVM, not a container — real kernel, real network stack, hardware-isolated by KVM.
+1. A sandbox is a real microVM (krucible, a libkrun fork), not a container — real kernel, real network stack, hardware-isolated (KVM on Linux, HVF on macOS).
 2. Sandboxes auto-pause when idle and wake transparently on the next request (~50 ms cold, ~400 µs warm). Most ops *just work* on a paused sandbox.
 3. `bhatti` is the host binary (daemon + CLI in one). `lohar` is the guest agent inside every VM (PID 1, talks to the host over vsock).
 4. The config drive is baked at create time. `--env`, `--secret`, and `--file` apply only to **new** sandboxes; you can't add them to a running one.

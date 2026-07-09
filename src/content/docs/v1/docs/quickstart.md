@@ -5,6 +5,13 @@ description: Install bhatti on your own Linux box, create a sandbox, and run
 slug: v1/docs/quickstart
 ---
 
+:::caution[bhatti v1 (Firecracker) is frozen]
+Active development moved to **v2 (krucible)**, a self-owned VMM that also runs on
+macOS — see the [current docs](/docs/quickstart/). These v1 pages are preserved
+for existing Firecracker users. **`bhatti.sh/install` now installs v2**, so the
+commands below are pinned to the frozen v1 release.
+:::
+
 This is the path I recommend for everyone except remote-CLI users
 sharing someone else's bhatti server. You'll install the daemon on a
 Linux box you own, and from that same box you'll create your first
@@ -18,10 +25,10 @@ virtualization is enough).
 ## Install
 
 ```bash
-curl -fsSL bhatti.sh/install | sudo bash
+curl -fsSL https://raw.githubusercontent.com/sahil-shubham/bhatti/firecracker/scripts/install.sh | sudo BHATTI_VERSION=v1.11.12 bash
 ```
 
-That's the whole install. The script:
+That's the whole install (pinned to the frozen v1.11.12 release). The script:
 
 1. Downloads `bhatti`, `lohar`, Firecracker, the kernel, and the
    minimal Ubuntu 24.04 rootfs (~200 MB total).
@@ -134,8 +141,8 @@ drive it from your laptop — install the CLI without sudo and point
 it at the server:
 
 ```bash
-# Install the CLI binary
-curl -fsSL bhatti.sh/install | bash
+# Install the v1 CLI binary
+curl -fsSL https://raw.githubusercontent.com/sahil-shubham/bhatti/firecracker/scripts/install.sh | BHATTI_VERSION=v1.11.12 bash
 
 # Configure the endpoint and key
 bhatti setup --url https://your-server:8080 --token bht_abc...

@@ -5,6 +5,17 @@ description: Install the bhatti server on your hardware, add teammates, set a
 slug: v1/docs/self-hosting
 ---
 
+:::caution[bhatti v1 (Firecracker) is frozen]
+Active development moved to **v2 (krucible)** — see the [current docs](/docs/self-hosting/).
+**`bhatti.sh/install` now installs v2.** To install the frozen Firecracker v1,
+use the pinned command:
+```bash
+curl -fsSL https://raw.githubusercontent.com/sahil-shubham/bhatti/firecracker/scripts/install.sh | sudo BHATTI_VERSION=v1.11.12 bash
+```
+The `bhatti.sh/install` snippets below are shown as originally written; prepend
+the pinned URL + `BHATTI_VERSION=v1.11.12` to install v1.
+:::
+
 The [Quickstart](/v1/docs/quickstart/) covers the install in three lines
 and gets you to your first sandbox. This page is the longer version
 — what's actually happening on your server, how to add teammates,

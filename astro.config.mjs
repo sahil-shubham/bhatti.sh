@@ -73,7 +73,7 @@ export default defineConfig({
                 starlightLlmsTxt({
                     projectName: 'bhatti',
                     description:
-                        'Open-source Firecracker microVM orchestrator. Real Linux VMs created in seconds, snapshotted to disk, resumed in microseconds. Built for running AI coding agents in isolated environments.',
+                        'Open-source microVM orchestrator with its own VMM (krucible, a libkrun fork). Real Linux VMs on Linux (KVM) and macOS (Apple Silicon) — created in seconds, snapshotted to disk, resumed in microseconds. Built for running AI coding agents in isolated environments.',
                     details: [
                         '**Agents driving bhatti: start at <https://bhatti.sh/agents.md>** — task-shaped, voiced to you, organized by user intent and end-to-end workflows. Everything below is reference material to fetch on demand.',
                         '',
@@ -178,7 +178,7 @@ export default defineConfig({
                     label: 'Under the Hood',
                     items: [
                         { label: 'Architecture overview', slug: 'docs/under-the-hood/architecture' },
-                        { label: 'Firecracker engine internals', slug: 'docs/under-the-hood/engine' },
+                        { label: 'krucible engine internals', slug: 'docs/under-the-hood/engine' },
                         { label: 'Lohar: the agent inside every VM', slug: 'docs/under-the-hood/lohar-the-blacksmith' },
                         { label: 'Thermal states', slug: 'docs/under-the-hood/thermal-states' },
                         { label: 'Storage', slug: 'docs/under-the-hood/storage' },
