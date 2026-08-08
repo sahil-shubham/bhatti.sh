@@ -1,6 +1,6 @@
 ---
 title: bhatti serve
-description: Start the bhatti daemon. Requires root and KVM.
+description: Start the bhatti daemon on Linux (KVM) or macOS (HVF).
 sidebar:
   label: serve
   order: 1
@@ -19,13 +19,13 @@ Start the bhatti daemon.
 
 ## Description
 
-Starts the HTTP API listener, the thermal manager, the public proxy (if domain mode or `public_proxy_listen` is configured), the port scanner, and the metrics + event recorders. Recovers any previously running sandboxes from the SQLite database on startup and re-attaches their TAP devices.
+Starts the HTTP API listener, the thermal manager, the public proxy (if domain mode or `public_proxy_listen` is configured), the port scanner, and the metrics + event recorders. Recovers any previously running sandboxes from the SQLite database on startup, adopting their live `bhatti-vmm` helpers by PID.
 
 Requires:
-- Linux with KVM (`/dev/kvm`)
-- Root, because Firecracker needs it
+- Linux with KVM (`/dev/kvm`), or macOS on Apple Silicon (HVF)
+- Root on Linux (for `/dev/kvm`); macOS needs no root
 - Config at `/etc/bhatti/config.yaml` (or `$BHATTI_CONFIG`)
-- The Firecracker binary, kernel image, and at least one rootfs image present at the paths in the config
+- The runtime bundle (`bhatti-vmm`, `bhatti-netd`, `libkrun`, the lean kernel) and at least one rootfs image present at the paths in the config
 
 Logs are emitted as structured JSON to stdout. Set `BHATTI_LOG_LEVEL=debug` for verbose logging. Most operators run this under systemd; the install script sets up the unit file at `/etc/systemd/system/bhatti.service`.
 

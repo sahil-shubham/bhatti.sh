@@ -16,9 +16,9 @@ Resume a stopped sandbox from its on-disk snapshot. The VM continues exactly whe
 
 ## Description
 
-Restores the VM from `mem.snap` + `vm.snap` and re-attaches it to its TAP device. Typical resume latency is ~50ms for a cold sandbox (snapshot read from disk) and sub-millisecond for a warm one (memory still allocated).
+Restores the VM from its on-disk snapshot bundle (`memory.img` + `checkpoint.bin` + `manifest.json`). Typical cold restore is sub-second (~380ms measured on Apple Silicon); a warm sandbox — one whose memory is still resident — resumes in ~4ms.
 
-If a previous restore failed (for example because the underlying rootfs file was corrupt or a TAP device couldn't be allocated), the sandbox enters the `unknown` state and `bhatti start` refuses to retry by default. Pass `--force` to retry — useful after fixing the underlying issue.
+If a previous restore failed (for example because the underlying rootfs file was corrupt or the VMM helper couldn't be launched), the sandbox enters the `unknown` state and `bhatti start` refuses to retry by default. Pass `--force` to retry — useful after fixing the underlying issue.
 
 You normally don't need to call `start` explicitly. Any API request — `exec`, `file read`, an HTTP request to a published URL — wakes a cold sandbox transparently before executing.
 

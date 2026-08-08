@@ -16,65 +16,82 @@ the right starting point.
 
 ## The shape
 
-Bhatti is **two binaries** — `bhatti` on the host, `lohar` inside
-each microVM — talking over **TCP** with a small binary protocol.
+Bhatti is a **host daemon plus three helper processes per running
+sandbox**. The daemon (`bhatti serve`) is **pure Go and never links
+the VMM**. Per sandbox it spawns `bhatti-vmm` (the microVM itself) and,
+per owner, `bhatti-netd` (the network gateway); inside each VM,
+`lohar` runs as PID 1. The daemon drives `bhatti-vmm` out-of-band over
+a **control socket** and talks to `lohar` over **vsock** with a small
+binary protocol.
 
 `bhatti` is a single Go binary that does many jobs depending on how
 you invoke it:
 
-- `bhatti serve` — the daemon (HTTP API, Firecracker engine, thermal
-  manager, reverse proxy, all in one process)
+- `bhatti serve` — the daemon (HTTP API, krucible engine, thermal
+  manager, public proxy, all in one process)
 - `bhatti create`, `bhatti exec`, `bhatti shell`, ... — the CLI client,
   talking to the daemon's HTTP API
 - `bhatti user create`, `bhatti admin status` — admin commands that
   read the daemon's SQLite database directly (root only)
 
-`lohar` runs as PID 1 inside every Firecracker microVM. It handles
-exec, file operations, PTY sessions, and pretends to be `systemctl`
-and `journalctl` for in-guest callers. The full story is in
+Two more binaries ship in the release bundle and are launched by the
+daemon, never by you:
+
+- `bhatti-vmm` — the cgo helper that *is* the VM. It links
+  [krucible](/docs/under-the-hood/engine/) (bhatti's fork of
+  [libkrun](https://github.com/containers/libkrun)) and calls
+  `krun_start_enter`, at which point the process **becomes** the guest
+  and blocks for the life of the VM. The daemon controls it from
+  outside over a Unix-socket control channel.
+- `bhatti-netd` — a per-owner userspace [gVisor](https://gvisor.dev/)
+  network gateway. It polices egress, isolates the guest from the
+  host, and makes same-owner sandboxes reachable — with no host TAP
+  devices, bridges, or iptables rules. **On by default.**
+
+`lohar` runs as PID 1 inside every microVM. It handles exec, file
+operations, PTY sessions, and pretends to be `systemctl` and
+`journalctl` for in-guest callers. The full story is in
 [Lohar](/docs/under-the-hood/lohar-the-blacksmith/).
 
 ```
 ┌─ Host ──────────────────────────────────────────────────────────────────────┐
 │                                                                             │
-│  ┌─ bhatti daemon  (bhatti serve, single Go process) ────────────────────┐  │
+│  ┌─ bhatti daemon  (bhatti serve, single pure-Go process) ───────────────┐  │
 │  │                                                                       │  │
-│  │   REST / WS API    Engine                Store (SQLite, WAL mode)     │  │
-│  │     :8080            Firecracker         sandboxes, users, secrets,   │  │
-│  │     reverse proxy    create / destroy    templates, volumes, events,  │  │
-│  │     thermal manager  stop / start        publish_rules, fc_state      │  │
+│  │   REST / WS API    Engine (krucible)     Store (SQLite, WAL mode)     │  │
+│  │     :8080            create / destroy     sandboxes, users, secrets,  │  │
+│  │     public proxy     stop / start         templates, volumes, events  │  │
+│  │     thermal manager  pause / resume                                   │  │
+│  │                      snapshot / fork                                  │  │
 │  │                      exec, shell, files                               │  │
-│  │                      snapshot, restore                                │  │
 │  │                                                                       │  │
-│  └─────────────────────────────────┬─────────────────────────────────────┘  │
-│                                    │                                        │
-│                   HTTP over Unix socket (Firecracker API)                   │
-│                   TCP over TAP     (agent protocol, port 1024)              │
-│                                    │                                        │
-│                                    ▼                                        │
-│  ┌─ Firecracker microVM × N ─────────────────────────────────────────────┐  │
-│  │                                                                       │  │
-│  │   vmlinux    rootfs.ext4    config.ext4    vol-*.ext4                 │  │
-│  │                                                                       │  │
-│  │   ┌─ lohar (PID 1) ──────────────────────────────────────────────┐    │  │
-│  │   │                                                              │    │  │
-│  │   │     TCP :1024  ──  control plane (exec, files, sessions)     │    │  │
-│  │   │     TCP :1025  ──  forward plane (port forwarding)           │    │  │
-│  │   │                                                              │    │  │
-│  │   │     sessions          scrollback        atomic file ops      │    │  │
-│  │   │     systemctl shim    journalctl shim   syslog receiver      │    │  │
-│  │   │                                                              │    │  │
-│  │   └──────────────────────────────────────────────────────────────┘    │  │
-│  │                                                                       │  │
-│  │   tapXXXXXXXX   ──   brbhatti-N (per-user)   ──   iptables NAT        │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
+│  └───────────┬───────────────────────────────────┬───────────────────────┘  │
+│              │                                   │                          │
+│     control socket (UDS)               unix socket (per owner)              │
+│     PAUSE/RESUME/STATUS/SNAPSHOT              virtio-net                     │
+│              │                                   │                          │
+│              ▼                                   ▼                          │
+│  ┌─ bhatti-vmm × N  (krucible/libkrun VMM) ──┐   ┌─ bhatti-netd × owners ─┐  │
+│  │                                          │   │                        │  │
+│  │   KVM (Linux) / HVF (macOS)              │◄──┤  gVisor userspace      │  │
+│  │   qcow2 CoW root (/dev/vda)              │   │  netstack gateway      │  │
+│  │   config drive (/dev/vdb)   volumes …    │   │  policed egress        │  │
+│  │                                          │   │  sibling reachability  │  │
+│  │   ┌─ lohar (PID 1) ─────────────────┐    │   └────────────────────────┘  │
+│  │   │   vsock  ── control plane       │    │                               │
+│  │   │           (exec, files, PTY)    │    │                               │
+│  │   │   vsock  ── forward plane       │    │                               │
+│  │   │   sessions   scrollback         │    │                               │
+│  │   │   systemctl shim   journald     │    │                               │
+│  │   └─────────────────────────────────┘    │                               │
+│  └───────────────────────────────────────────┘                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 The daemon's HTTP API is the only public surface. Everything below
-it — the FC API, the agent protocol, the bridge — is internal. A
-client outside the host talks only to `:8080` (or `:443` in
-domain mode).
+it — the control socket, the vsock agent protocol, the netd gateway —
+is internal. A client outside the host talks only to `:8080` (or
+`:443` in domain mode).
 
 ## Four decisions that shape the rest
 
@@ -83,15 +100,17 @@ you can't understand the rest of the docs without.
 
 ### 1. The daemon is a single Go process
 
-REST/WS API, Firecracker engine, thermal manager, reverse proxy,
+REST/WS API, krucible engine, thermal manager, public proxy,
 SQLite store, rate limiter — all in one process. No microservices,
-no message queue, no separate workers. State lives in SQLite
+no message queue, no separate workers. The daemon *coordinates* the
+per-sandbox `bhatti-vmm` and per-owner `bhatti-netd` helpers, but it
+owns all the state and all the decisions. State lives in SQLite
 (see [Where state lives](#where-state-lives)).
 
 This is a deliberately small box. One binary you can `scp`. One log
 to read. One process to restart. Whatever growth bhatti does, it
-won't be by adding more processes — it'll be by getting better at
-the work the single process already does.
+won't be by adding more processes to the control plane — it'll be by
+getting better at the work the single process already does.
 
 The cost is real: one bhatti daemon manages the sandboxes on one
 machine. There's no clustering inside bhatti and no plans for it.
@@ -103,117 +122,96 @@ including wake-on-request — to the same daemon. Each bhatti stays
 single-process; the proxy is the only piece that knows about the
 fleet. That's still outside bhatti itself.
 
-### 2. We talk to Firecracker directly, no SDK
+### 2. We own the VMM, and drive it out of band
 
-Firecracker exposes an HTTP API over a Unix domain socket — about
-eight endpoints we actually use (`/machine-config`, `/drives`,
-`/network-interfaces`, `/vsock`, `/balloon`, `/boot-source`,
-`/actions`, `/snapshot/{create,load}`).
+The daemon never links libkrun. Linking it wouldn't work anyway:
+libkrun's entry call, `krun_start_enter`, *becomes* the VM and blocks
+for its whole life — a daemon that called it would stop being a
+daemon. So the VMM lives in a separate process, `bhatti-vmm`, and the
+daemon drives it from outside.
 
-The official
-[firecracker-go-sdk](https://github.com/firecracker-microvm/firecracker-go-sdk)
-wraps those eight endpoints in ~15,000 lines of generated client
-code, plus a `containerd`-derived vsock helper, plus the
-`go-openapi` runtime, plus `cni` for networking, plus `grpc`. It's
-designed for the AWS Lambda use case and pulls in roughly that much
-machinery.
+That out-of-band channel is a tiny Unix-socket **control socket**.
+The daemon writes a verb, the VMM acts, and answers:
 
-Our adapter is `pkg/engine/firecracker/fc.go` — a few HTTP helpers
-(`fcPut`, `fcPatch`, `fcGet`) over an `http.Transport` whose
-`DialContext` returns a Unix socket connection. About 20 lines.
+```
+PAUSE            -> OK paused | ERR <reason>   (freeze the vCPUs)
+RESUME           -> OK running | ERR <reason>  (thaw them)
+STATUS           -> OK <state>                 (running|pausing|paused|resuming)
+SNAPSHOT <dir>   -> OK                         (write RAM + device + vCPU state)
+```
 
-What I lose: type-safe JSON bodies. A typo in `"vcpu_count"` shows
-up at runtime, not compile time.
+Everything the thermal manager and snapshot code needs is built from
+these primitives. A warm pause is `PAUSE`; a warm resume is `RESUME`.
+A **checkpoint** (a memory snapshot) is `PAUSE`, `SNAPSHOT <dir>`,
+`RESUME` — captured *without stopping* the sandbox. A **restore** is
+a fresh `bhatti-vmm` launched with the bundle directory, so libkrun
+reloads `memory.img` instead of cold-booting. A **fork**
+(`create --from`) is a checkpoint into a throwaway bundle immediately
+restored into a new identity. See
+[the engine page](/docs/under-the-hood/engine/) for the full
+sequence.
 
-What I get back, in order of how much it actually matters:
+What I get from owning the VMM: pause, resume, snapshot, restore, and
+fork exist *at all*. They're the whole point of bhatti's thermal
+model, and they are permanently off upstream libkrun's roadmap — so
+bhatti maintains the fork ([krucible](/docs/under-the-hood/engine/))
+rather than wrap a stock VMM. The cost is that I carry a hypervisor
+fork; the [engine page](/docs/under-the-hood/engine/) is the argument
+for why that's worth it.
 
-- **The hard parts of the FC integration aren't in the API surface
-  itself.** Snapshot/restore sequencing, the
-  [vm.snap path problem](#jailer-mode-and-the-snapshot-path-problem),
-  TAP lifecycle, thermal state — none of that gets easier with the
-  SDK. It's all in code we have to write either way.
-- **When something goes wrong, the failing call is in code I wrote.**
-  Not in 200 lines of generated middleware.
-- **The integration tests catch typos within seconds.** They run on
-  real Firecracker against real microVMs, on two Raspberry Pi 5s
-  with NVMe HATs that I keep at home and run every PR through. Fast
-  feedback on a real kernel is worth more than compile-time checks
-  on a JSON shape.
+### 3. No jailer — the VMM runs as an ordinary host process
 
-### 3. Jailer mode is the production path
+There is no jailer in v2. `bhatti-vmm` runs as a normal host process
+under the daemon's user. Isolation comes from three places that don't
+require a chroot wrapper:
 
-Firecracker's
-[Jailer](https://github.com/firecracker-microvm/firecracker/blob/main/docs/jailer.md)
-runs each FC process in a chroot, drops it to an unprivileged UID,
-puts it in its own PID namespace, and applies a seccomp filter. The
-chroot lives at `/var/lib/bhatti/jails/firecracker/<id>/` and
-contains a hard-linked copy of every file FC needs (kernel, rootfs,
-config drive, volumes, snapshot artifacts).
+- **The hardware boundary.** Each sandbox is a real VM behind
+  **KVM** (Linux) or **HVF** (Apple Silicon). The guest kernel is not
+  the host kernel; a process in the guest is not a process on the
+  host.
+- **The network gateway.** `bhatti-netd` is a userspace gVisor
+  netstack, so the guest never touches host network devices — no
+  TAP, no bridge, no iptables to get wrong. Egress is policed and
+  same-owner siblings are routed; the host is not on the guest's
+  network.
+- **The storage boundary.** The VMM only opens the files for its own
+  sandbox — a qcow2 CoW root overlay, a config drive, and any
+  attached volumes — not the wider filesystem.
 
-Without the jailer, FC runs as root and sees the whole host
-filesystem. A theoretical VM escape lands the attacker as root on
-the host with full visibility. With the jailer, a successful escape
-lands them as an unprivileged UID inside a near-empty chroot.
-
-For a multi-tenant deployment, the jailer is not optional — it's
-the entire point of running real VMs instead of containers. The
-setting is `firecracker_jailer` in the server config; the install
-script enables it by default. Bhatti only runs on Linux with KVM
-([`cmd/bhatti/engine_other.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/bhatti/engine_other.go)
-refuses to start anywhere else), so there's no "non-jailed
-macOS" path to worry about — if `bhatti serve` runs at all, you're
-on Linux and you should turn the jailer on.
-
-#### Jailer mode and the snapshot path problem
-
-Bhatti hit v1.0.0 specifically because of an incompatibility
-between bare and jailed snapshots.
-
-The reason: Firecracker's `vm.snap` records the *paths* of every
-file the VMM had open at snapshot time. In bare mode that's an
-absolute host path like
-`/var/lib/bhatti/sandboxes/abc/rootfs.ext4`. In jailed mode it's a
-chroot-relative path like `/rootfs.ext4`. On resume, the VMM
-reopens those exact paths.
-
-Switching modes invalidates every existing snapshot:
-
-- Bare → jailed: `/var/lib/bhatti/...` doesn't exist inside the new
-  chroot.
-- Jailed → bare: `/rootfs.ext4` doesn't exist as an absolute host
-  path.
-
-There's no fix-up step that rewrites paths in `vm.snap` — it's a
-binary blob of FC's internal device-model state, not something
-bhatti can edit. So the migration plan was: destroy every snapshot,
-upgrade, recreate. That's a major version bump in semver terms.
-We did it once, called it v1.0, and the codebase has been
-jailer-by-default since.
-
-Bare mode is still in the code as a fallback (it's just FC without
-the jailer wrapper) and is what some integration tests use. For
-any deployment a real user touches, jailer mode is what you want.
+Hardening the host-process boundary further — dropping to an
+unprivileged UID, a seccomp filter, a private mount namespace for
+hostile multi-tenant on Linux — is planned as a separate **Track J**
+capability. It is future work, not the current path: today the VMM is
+an ordinary process, and that is the honest description of what runs.
+On macOS the shipped `bhatti-vmm` is Developer-ID signed and notarized
+with the `com.apple.security.hypervisor` entitlement, so HVF works
+without root at all.
 
 ### 4. Per-VM mutex with capture-and-release
 
 Concurrency is the part that bites every "single Go process"
 design eventually. Bhatti's pattern is small but load-bearing.
 
-Each `VM` struct has its own `stateMu sync.Mutex`
-([`pkg/engine/firecracker/engine.go:75-86`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/engine.go#L75-L86)).
-The engine-level `sync.RWMutex` only protects the map of VMs — it
-doesn't protect any individual VM's state.
+Each `VM` struct has two mutexes
+([`pkg/engine/krucible/engine.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/krucible/engine.go)):
+`launchMu` serializes lifecycle *transitions* (launch / start / stop /
+pause / resume / destroy) so a burst of concurrent wake-on-request
+calls can't double-spawn the helper; `mu` guards field reads and
+writes. The lock order is always `launchMu` before `mu`, never the
+reverse — read-only `Status`/`List` take only `mu` and must not block
+behind an in-flight transition. The engine-level `sync.RWMutex` only
+protects the *map* of VMs.
 
 The pattern every operation follows:
 
 ```go
-vm.stateMu.Lock()                  // 1. take the lock
-if vm.Thermal != "hot" {           // 2. check invariants
-    vm.stateMu.Unlock()
-    return errNotHot
+vm.mu.Lock()                       // 1. take the lock
+if vm.Status != "running" {        // 2. check invariants
+    vm.mu.Unlock()
+    return errNotRunning
 }
 ag := vm.Agent                     // 3. capture references we need
-vm.stateMu.Unlock()                // 4. release the lock immediately
+vm.mu.Unlock()                     // 4. release the lock immediately
 return ag.Exec(ctx, cmd)           // 5. do the slow work outside the lock
 ```
 
@@ -222,41 +220,38 @@ then make the network call. The lock protects access to `vm.Agent`
 itself, not any operation that uses it.
 
 The reason this matters: a `Shell` or `Tunnel` call lasts as long as
-the user's session — minutes, hours. If those calls held
-`stateMu` for their duration, the thermal manager couldn't pause
-*any* VM (because every cycle iterates the VM map and tries to take
-each VM's lock to read its thermal state). One slow shell would
-freeze idle pause / cold snapshot for everything else.
+the user's session — minutes, hours. If those calls held the lock
+for their duration, the thermal manager couldn't pause *any* VM
+(because every cycle iterates the VM map and tries to read each VM's
+thermal state). One slow shell would freeze idle pause / cold
+snapshot for everything else.
 
-The safety argument: `vm.Agent` is only replaced during `Start()`
-(snapshot restore), and `Start()` takes the same `stateMu` to do
-it. So if a Shell goroutine grabs `vm.Agent`, releases the lock,
-and then `Start()` runs to completion and replaces `vm.Agent` with
-a new client — the Shell goroutine still has a valid reference to
-the *old* Agent's TCP connection. That connection is good until the
-Firecracker process is killed, which happens only on `Stop()` or
-`Destroy()`. By that point, both `Stop()` and `Destroy()` will
-have closed the connection, the Shell will see a read error, and
-clean up.
+The safety argument: `vm.Agent` is only replaced during a launch
+(cold restore), and that path takes `launchMu` and then `mu` to do
+it. So if a Shell goroutine grabs `vm.Agent`, releases the lock, and
+then a restore runs to completion and replaces `vm.Agent` with a new
+client — the Shell goroutine still has a valid reference to the *old*
+agent's vsock connection. That connection is good until the
+`bhatti-vmm` process is killed, which happens only on `Stop()` or
+`Destroy()`. By that point the connection is closed, the Shell sees a
+read error, and cleans up.
 
 So: long-running operations don't block the system, and they don't
 explode when state is updated underneath them — they just see the
 underlying connection close and exit cleanly. The pattern is in
-every method on the Firecracker engine that touches an agent.
+every method on the krucible engine that touches an agent.
 
 ## Where state lives
 
-State is in two places: SQLite, on disk; Firecracker memory and disk
-images, on disk per-sandbox.
+State is in two places: SQLite, on disk; and per-sandbox VMM state
+(disk overlays, config drive, cold-snapshot bundle) on disk under the
+data directory.
 
 **SQLite.** One database file at `/var/lib/bhatti/state.db` on a
 default server install. Tables:
 
-- `sandboxes` — id, name, owner, status, IP, MAC, engine ID
-- `fc_state` — per-VM Firecracker config (CPU, memory, drive paths,
-  snapshot paths, agent token), serialized as JSON; this is what
-  recovery reads
-- `users` — name, hashed API key (SHA-256), per-user limits, subnet index
+- `sandboxes` — id, name, owner, status, engine ID
+- `users` — name, hashed API key (SHA-256), per-user limits
 - `secrets` — name, encrypted value (age), scoped per user
 - `templates`, `volumes`, `publish_rules`
 - `events` — audit log
@@ -269,32 +264,36 @@ vice versa.
 **Per-sandbox.** Under `/var/lib/bhatti/sandboxes/<id>/`:
 
 ```
-rootfs.ext4         CoW copy of the base rootfs
-config.ext4         1MB ext4 with hostname, env, files, volume specs
-vol-<name>.ext4     attached volumes (per-sandbox; shared volumes are
-                    elsewhere — see below)
-firecracker.sock    FC API Unix socket (only while the VM is running)
-mem.snap            memory snapshot (only when cold)
-vm.snap             VM state snapshot (only when cold)
+<CoW root overlay>   qcow2 copy-on-write overlay over the base image
+config drive         ~1 MB ext4 (/dev/vdb): hostname, env, secrets,
+                     files, per-sandbox token
+state.json           recovery metadata — helper PID, socket paths,
+                     bundle ref; this is what recovery reads
+(when cold)          the cold-snapshot bundle: memory image + VM
+                     state + a copy of the root overlay + any
+                     attached volumes + manifest.json
 ```
 
-The CoW copy uses `cp --reflink=auto`. On btrfs or XFS this is
-instant and near-zero disk; on ext4 it falls back to a full copy.
-If you're benchmarking `bhatti create`, run on btrfs. See
-[Storage](/docs/under-the-hood/storage/) for the cost-by-filesystem
-breakdown, compression ratios, and the page-cache story for cold
-wake.
+The root overlay is a **qcow2 copy-on-write image** stacked over a
+shared read-only base. CoW lives at the image-format layer, so it's
+filesystem-independent — ext4, XFS, btrfs, APFS all give instant
+create and base-sharing with ~0.5% overhead. There's **no btrfs or
+reflink requirement**; that was v1. See
+[Storage](/docs/under-the-hood/storage/) for the overhead breakdown
+and the page-cache story for cold wake.
 
 **Other disk locations under `/var/lib/bhatti/`:**
 
-- `images/` — read-only base rootfs templates (`rootfs-minimal-arm64.ext4`
-  etc.) and the kernel
-- `volumes/<name>.ext4` — standalone volumes (created by
-  `bhatti volume create`, attachable to any sandbox)
-- `snapshots/<user>/<name>/` — named snapshots from
+- `runtime/` — the relocatable v2 runtime bundle, re-laid on every
+  install/update: `bin/` (`bhatti-vmm`, `bhatti-netd`), `lib/`
+  (libkrun + symlinks), and `kernel/` (the lean external kernel)
+- `images/` — read-only base rootfs templates
+  (`rootfs-minimal-arm64.ext4` etc.), CoW-overlaid per sandbox
+- `volumes/<user_id>/` — standalone persistent volumes (created by
+  `bhatti volume create`, attachable to any sandbox as `/dev/vdc+`)
+- `snapshots/<user_id>/<name>/` — named snapshots from
   `bhatti snapshot create` (memory + disk artifacts, fully
   self-contained)
-- `jails/firecracker/<id>/` — jailer chroots (when jailer is on)
 - `age.key` — the X25519 private key used to encrypt user secrets.
   It's generated *the first time anyone calls `bhatti secret set`*,
   not on daemon startup
@@ -302,52 +301,49 @@ wake.
   **Back this up.** If you lose it, every encrypted secret on the
   server is unrecoverable.
 
-The 1 MB config drive is sized that way because ext4's minimum
-filesystem size is 1 MB — anything smaller fails to format. The
-contents (~few hundred bytes of JSON describing hostname, env vars,
-volume mounts) would fit in less, but the filesystem can't.
+There are no `jails/` and no `firecracker.sock` under a sandbox dir —
+those were v1. The config drive is 1 MB because ext4's minimum
+filesystem size is 1 MB; the contents (a few hundred bytes of JSON
+describing hostname, env vars, volume mounts, plus the token) would
+fit in less, but the filesystem can't.
 
 ## Recovery on startup
 
 When the bhatti daemon starts — fresh boot, after a crash, after a
-`systemctl restart` — every Firecracker process from the previous
-run is dead. The daemon's job at startup is to look at every
-sandbox row in SQLite and decide, for each one, whether it can
-still be brought back.
+`systemctl restart` — the helper processes from the previous run may
+or may not still be alive. The daemon's job at startup is to look at
+every sandbox and decide, for each one, what state it's really in.
 
-There are only two things that need to be true to bring a sandbox
-back:
+Recovery is driven by the **per-sandbox `state.json`**, not the
+database. Each sandbox's file records everything needed to re-adopt
+or re-launch it: the helper PID, the socket paths, the base spec, the
+bundle dir, and (for the net backend) the owner's `bhatti-netd` key
+and subnet index. `bhatti-vmm` and `bhatti-netd` are spawned
+*detached* from the daemon's process group, so they survive a daemon
+restart or crash.
 
-1. **The row is still in `sandboxes`** — we know the sandbox exists
-   and we have its config in `fc_state`.
-2. **The snapshot files exist on disk** (`mem.snap` and `vm.snap`) —
-   we have somewhere to restore the VM from.
+On startup the engine globs every `sandboxes/*/state.json` and, for
+each one:
 
-If both are true, the sandbox is marked `stopped` in memory and is
-ready to wake on the next API call. If the row exists but the
-snapshot doesn't, the sandbox is marked `unknown` — a clear error
-on the next operation, and a hint to the operator to dig in.
+1. **Adopts a live helper.** If the recorded PID is still alive *and*
+   its agent answers a probe over vsock, the sandbox is adopted as-is
+   — running, no restart, sessions intact.
+2. **Marks a dead-but-restorable one cold.** If the helper is gone
+   but a cold-snapshot bundle exists on disk, the sandbox is marked
+   `stopped`/`cold` — the next request cold-restores it from the
+   bundle (a sub-second operation).
+3. **Marks the rest stopped.** A dead helper with no bundle (crashed
+   before its first snapshot, RAM gone but the qcow2 root persists)
+   needs an explicit `Start`, which cold-boots it fresh.
 
-The normal case is the boring one: the daemon was shut down cleanly
-(`systemctl stop bhatti`), `SnapshotAll` ran, every running sandbox
-got a snapshot, and on next startup every sandbox comes back as
-`stopped`. No data loss, no manual recovery.
+Then the engine re-adopts each owner's shared `bhatti-netd` gateway
+from its persisted record rather than respawning onto a socket it
+still holds, and writes the reconciled status back to `state.json`.
 
-The abnormal cases are where it gets interesting: a power cut
-between snapshot and disk flush, a btrfs subvolume that disappeared,
-a half-finished `bhatti destroy` that left a row but cleaned up the
-files. In each case the sandbox lands in `unknown`, the operator
-sees a `recovery: snapshot missing` warning in the log, and they
-can decide whether to recreate it. Volume data is on separate ext4
-images and survives the loss of the memory snapshot — so the
-recovery path even from `unknown` is detach volumes, destroy,
-recreate, reattach.
-
-After the sandbox loop, the engine cleans up orphans: TAP devices,
-user bridges, stale snapshot temp directories, `.ext4` files with
-no row in the volumes table. The order matters: sandboxes load
-first so that cleanup knows which TAPs and bridges *should* still
-exist.
+There is **no system-wide device cleanup** step, because there are no
+host TAP devices, bridges, or iptables rules to leave behind — the
+network lives entirely inside `bhatti-netd`. That whole class of
+"stale plumbing after a crash" problem doesn't exist in v2.
 
 ## What's not on this page
 
@@ -356,13 +352,13 @@ This was the map. The depth is in the topic pages:
 - [Lohar — the agent inside every VM](/docs/under-the-hood/lohar-the-blacksmith/)
   — PID 1, the systemctl shim, sessions, file ops
 - [Thermal states](/docs/under-the-hood/thermal-states/) — hot /
-  warm / cold, the balloon trick, snapshot mechanics
-- [Networking](/docs/under-the-hood/networking/) — per-user bridges,
-  the six iptables rules, the ARP trick, kernel `ip=`
+  warm / cold, pause/resume, snapshot mechanics
+- [Networking](/docs/under-the-hood/networking/) — the `bhatti-netd`
+  gVisor gateway, policed egress, sibling reachability, vsock forward
 - [Wire protocol](/docs/under-the-hood/wire-protocol/) — frame
   format, all frame types, atomic writes
-- [Firecracker engine internals](/docs/under-the-hood/engine/) —
-  the actual API call sequence during create, jailer specifics,
-  rate limiters
+- [The krucible engine](/docs/under-the-hood/engine/) — the control
+  socket, the `krun_*` boot sequence, block-root qcow2, the lean
+  kernel, and why bhatti owns the VMM
 - [Decisions & learnings](/docs/under-the-hood/decisions/) — the
   bugs we paid for, in narrative form

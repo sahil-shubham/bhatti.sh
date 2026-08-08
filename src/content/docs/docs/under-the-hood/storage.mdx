@@ -1,201 +1,221 @@
 ---
 title: Storage
-description: How bhatti stores sandbox state on disk — reflinks, compression, page cache, and why btrfs is the recommended filesystem.
+description: How bhatti stores sandbox state on disk — qcow2 copy-on-write overlays, base-image sharing, and why v2 needs no special filesystem.
 ---
 
 bhatti's storage layout is one of the most load-bearing design
 decisions in the system and the least visible. Every `bhatti create`,
-every snapshot, every resume from cold leans on assumptions about the
-underlying filesystem. On btrfs those assumptions are correct and the
-numbers we publish on the homepage hold. On ext4 the system still
-*works* — but the costs go up, sometimes by an order of magnitude.
+every snapshot, every resume from cold leans on it. In v1 those
+assumptions lived in the *filesystem* — reflinks on btrfs, a real copy
+on ext4 — and the cost of a create swung by an order of magnitude
+depending on which one you had.
 
-This page covers what's actually on disk per sandbox, the kernel
-primitives that make the costs small, and what changes on a
-filesystem that doesn't support reflinks.
+v2 moves copy-on-write down a layer, into the disk-image format
+itself. Each sandbox's root is a **qcow2 overlay** over a shared
+read-only base image. Because the CoW happens inside qcow2, not in
+the filesystem, it works the same on ext4, xfs, btrfs, and APFS — no
+btrfs requirement, no reflink, no cost cliff. This page covers what's
+actually on disk per sandbox, how the overlay stays cheap, and the
+one escape hatch (`KRUCIBLE_ROOT_RAW`) for when you don't want it.
 
 ## What's on disk per sandbox
 
-Four files under `/var/lib/bhatti/sandboxes/<id>/`:
+Under `/var/lib/bhatti/sandboxes/<id>/`:
 
 ```
-rootfs.ext4         CoW copy of the base rootfs (sparse-allocated)
-config.ext4         1 MiB ext4 with hostname, env, secrets, volume specs
-mem.snap            guest RAM dump (equal to configured memory; only when cold)
-vm.snap             KB-range VM device state (only when cold)
+root.qcow2          qcow2 CoW overlay over the shared base image (the sandbox's disk deltas)
+config.ext4         ~1 MiB ext4 with hostname, env, secrets, file drops, per-sandbox token
+vmspec.json         the VM spec the helper booted from
+state.json          recovery metadata (helper PID, socket paths, bundle ref)
+vmm.log             the bhatti-vmm helper's log
+bundle/             the cold snapshot bundle (only while the sandbox is cold)
+```
+
+The cold `bundle/` directory holds a self-contained snapshot:
+
+```
+memory.img          guest RAM image (equal to configured memory)
+                    + VM/device + vCPU state
+rootfs.qcow2        point-in-time copy of the root overlay
+config.ext4         the config drive
+<volume images>     any attached persistent volumes
+manifest.json       bundle metadata (vCPUs, memory, arch/feature gate, proto_ver)
 ```
 
 Plus shared resources elsewhere:
 
 - `/var/lib/bhatti/images/rootfs-<tier>-<arch>.ext4` — read-only base
-  rootfs templates. Every sandbox's `rootfs.ext4` is reflinked from
-  one of these.
-- `/var/lib/bhatti/volumes/<name>.ext4` — standalone volumes
+  rootfs templates. Every sandbox's `root.qcow2` is a thin overlay
+  *over* one of these; the base is never modified.
+- `/var/lib/bhatti/volumes/<user_id>/` — standalone volumes
   (`bhatti volume create`), attached to one sandbox at a time.
 
-The `.ext4` files are virtio-blk-backed block devices from the guest's
-perspective. Their on-disk size is *sparse* — `ls -lh` reports the
-logical size, `du -h` reports what's actually allocated. The
-difference matters; see [Disk
+From the guest's perspective these are all virtio-blk block devices.
+The root overlay is `/dev/vda`, the config drive is `/dev/vdb`, and
+attached volumes enumerate from `/dev/vdc` upward. On the host,
+`root.qcow2`'s on-disk size is just the *delta* the sandbox has
+written — `ls -lh` shows the logical device size, `du -h` shows the
+real allocation. The gap is the whole point; see [Disk
 usage](/docs/managing/images/#disk-usage) on the images page for the
 walkthrough.
 
-## How rootfs cloning works
+## How the CoW root overlay works
 
-`bhatti create` calls
-[`copyBlock`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/fc.go#L236):
+`bhatti create` provisions the overlay through the VMM helper — the
+daemon is pure Go and never links libkrun, so it shells to
+`bhatti-vmm create-overlay`, which creates a qcow2 CoW node via
+`krun_create_disk_overlay` (libkrun's `imago` disk library — the same
+code that opens the image at boot)
+([`pkg/engine/krucible/engine.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/krucible/engine.go),
+[`cmd/vmm/main.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/vmm/main.go)):
 
 ```go
-exec.Command("cp", "--reflink=auto", "--sparse=always", src, dst).Run()
+// Default: a qcow2 CoW root — instant + host-FS-independent (no
+// reflink/btrfs). Raw is the opt-out (KRUCIBLE_ROOT_RAW=1).
+rootImg = filepath.Join(sandboxDir, "root.qcow2")
+e.createRootOverlayQcow2(rootImg, base)
+baseSpec.RootDiskFormat = "qcow2"
 ```
 
-`--reflink=auto` means "use the kernel's `FICLONE`/`BTRFS_IOC_CLONE`
-ioctl if the filesystem supports it; otherwise fall back to a normal
-copy." Same source code, very different runtime cost:
+A fresh overlay is **metadata-only** — a tiny qcow2 v3 header that
+records the backing image, never a copy of it. Creation is instant
+regardless of base size, and the read-only majority of every tier
+(`/usr`, `/lib`, package payloads) stays shared: one base file on disk
+backs every sandbox built from it, and the OS page cache holds one
+copy of those pages in RAM across all of them. The sandbox only
+allocates blocks when it *writes* — a config tweak, a log line, a
+package install. Typical overhead of the qcow2 indirection on
+agent/dev workloads is **~0.5%**.
 
-| Filesystem | Mechanism | Time | Disk used |
+The key difference from v1: this is all filesystem-independent.
+
+| Filesystem | Create-from-base | Base sharing | Notes |
 |---|---|---|---|
-| **btrfs** | `BTRFS_IOC_CLONE` (metadata-only) | ~14 ms | one extent table entry; shares blocks with source |
-| **xfs** (with reflink=1) | `FICLONE` (metadata-only) | comparable | shares blocks; refcount btree |
-| **ext4** | sparse `read`/`write` loop | ~320 ms | physical copy of every used extent |
+| **ext4** | instant (metadata overlay) | yes | no reflink needed |
+| **xfs** | instant | yes | — |
+| **btrfs** | instant | yes | optional transparent compression on top |
+| **APFS** (macOS) | instant | yes | Apple Silicon dev boxes |
 
-The 14 ms / 320 ms numbers come from
-[`INVESTIGATION-create-performance.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/INVESTIGATION-create-performance.md)
-on `agni-01` (NVMe RAID-1, 1 GiB base rootfs).
+There's no "what changes on ext4" penalty section any more, because
+nothing changes. The overlay is a qcow2 file; qcow2 does the CoW; the
+underlying filesystem just stores bytes.
 
-On btrfs the new sandbox `rootfs.ext4` shares extents with the base
-image until the sandbox writes a block, at which point CoW splits
-that block on first write. The read-only majority of every tier
-(`/usr`, `/lib`, package payloads) stays shared in the page cache
-across every sandbox built from the same image — one set of pages in
-RAM serves all of them.
+Inside the guest the overlay is transparent. libkrun (imago) presents
+`root.qcow2` as a plain raw ext4 at `/dev/vda` — the kernel command
+line gets `root=/dev/vda` and the guest never knows it's talking to a
+CoW overlay ([`cmd/vmm/main.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/vmm/main.go)).
 
-The same `copyBlock` runs for snapshot create
-([`snapshot.go:280`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/snapshot.go#L280))
-and for volume backups
-([`pkg/server/volume_handlers.go:271`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/server/volume_handlers.go#L271)).
-On btrfs every "expensive" copy in the system is metadata-only.
+## Volumes and the config drive
 
-## zstd on `mem.snap`
+Standalone volumes (`bhatti volume create`) and the per-sandbox config
+drive are also block devices, attached to the VM as additional
+virtio-blk disks
+([`pkg/engine/krucible/engine.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/krucible/engine.go)):
 
-The recommended btrfs mount option is
-`loop,noatime,compress=zstd:1` — transparent zstd at level 1 on every
-file in the data dir. `mem.snap` benefits dramatically because
-guest RAM is dominated by zero pages, deduplicated read-only kernel
-text, and other highly-compressible data.
+- **`/dev/vdb`** — the config drive, a ~1 MiB ext4 image carrying the
+  sandbox's hostname, environment, decrypted secrets, injected files,
+  and its per-sandbox auth token. Read-only from the guest's side.
+- **`/dev/vdc` and up** — attached persistent volumes, in attach
+  order. Each carries its guest mount path and filesystem in the
+  config drive's volume spec. A volume image may itself be raw or a
+  qcow2 CoW node; the VMM opens each with the right format.
 
-Production measurements from `agni-01`:
+Because volumes are separate block images, their data is independent
+of the root overlay: it survives even when a memory snapshot doesn't,
+and a snapshot/fork of a sandbox restores the *whole device set* (RAM
++ root overlay + attached volumes) as one consistent bundle.
 
-| Artefact | Apparent | Physical | Ratio |
-|---|---|---|---|
-| One 1024 MB `mem.snap` | 1.0 GiB | **48 MiB** | 21× |
-| One stopped sandbox dir | 2.1 GiB | **176 MiB** | 12× |
-| All sandboxes, 63 sandboxes / 6 users | 571 GiB referenced | 95 GiB physical | **6×** combined |
+## Snapshots, forks, and saved images
 
-The 6× combined number factors in both reflink dedup (2.6×) and
-zstd (2.3×) across the whole data dir. You can inspect the breakdown
-yourself with `compsize` from `btrfs-progs`:
+Everything expensive in v1's storage layer was a `cp --reflink`. In
+v2 it's a qcow2 operation, and the three write paths all reuse the
+same overlay machinery:
 
-```bash
-sudo compsize /var/lib/bhatti
-```
+- **`bhatti stop` / cold tier.** The thermal manager pauses the VM at
+  a quiesced boundary and writes the full `bundle/` (memory image + VM
+  state + a copy of `root.qcow2` + config drive + volumes +
+  `manifest.json`), then frees RAM. `bhatti start` restores it. See
+  [Thermal states → Warm → Cold](/docs/under-the-hood/thermal-states/#warm--cold).
+- **Fork (`bhatti create --from`).** An instant CoW clone: the new
+  sandbox's root is a fresh qcow2 overlay over the parent's image, and
+  its memory is cloned from the parent's snapshot. No copy of the base.
+- **`bhatti image save`.** Captures the running root as a bootable
+  qcow2 image without stopping the sandbox — a quiesce (in-guest
+  `sync`, pause, host flush, copy the overlay), yielding a qcow2 CoW
+  node that itself still backs the shared base
+  ([`pkg/engine/krucible/snapshot.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/krucible/snapshot.go)).
+  Stamping a new sandbox from it is another instant overlay.
 
-It splits the report by file type (mostly ext4 block devices in our
-case) and shows what each compression algorithm achieved.
-
-Compression level `:1` is deliberate. Higher levels (zstd:3, zstd:5)
-get more compression at the cost of write throughput, which matters
-for snapshot create. Level 1 is roughly the same write speed as no
-compression while still hitting the 2× ratio on `mem.snap` — guest
-RAM is so compressible that a basic dictionary catches most of it.
+All snapshots are **Full** — v2 has no diff/incremental snapshot mode.
+The reasoning lives on the thermal page, [Why all snapshots are
+Full](/docs/under-the-hood/thermal-states/#why-all-snapshots-are-full).
+The bundle is portable across machines of the same architecture
+(`manifest.json` records an arch/feature gate; a cross-arch restore is
+refused).
 
 ## Cold wake and the page cache
 
 When a sandbox is in the [Cold
-state](/docs/under-the-hood/thermal-states/), its `mem.snap` is the
-only thing standing between "dead VM" and "fully restored guest." How
-much time the restore takes depends heavily on whether `mem.snap` is
-still in the host page cache.
+state](/docs/under-the-hood/thermal-states/), its `bundle/memory.img`
+is the only thing standing between "dead VM" and "fully restored
+guest." Restore re-launches a fresh `bhatti-vmm` helper that reads the
+memory image back into a new VM and resumes from the snapshot point.
+How fast that is depends heavily on whether `memory.img` is still in
+the host page cache.
 
-Measurements from `agni-01` (10 samples each, raw curl to
-`/sandboxes/.../exec`, 1024 MB sandbox, btrfs + zstd:1):
+Right after a snapshot is written, its pages are hot in the cache, so
+the restore read is nearly free. Thirty minutes later, under memory
+pressure from a busy host, the kernel may have evicted them — and the
+restore does a real disk read of the memory working set. This is
+filesystem-agnostic: it's the OS page cache doing its job, not
+anything qcow2 or btrfs specific.
 
-| Scenario | Median exec | Notes |
-|---|---|---|
-| **Hot page cache** (`sync` between runs) | **57–78 ms** | `mem.snap` still resident; only the FC process needs to spin up |
-| **Cold page cache** (`sync && drop_caches`) | **186–342 ms** | Full disk read of `mem.snap` working set |
-| **Production-realistic** (concurrent traffic on the proxy) | **~400 ms** | Matches the homepage 360 ms p50 / 430 ms p99 |
-| **`keep_hot=true`** (no thermal management) | 13–14 ms | Sandbox never goes cold |
+In practice a cold restore is **sub-second** — ~380 ms measured
+end-to-end on Apple Silicon (M-series, NVMe) for a small sandbox.
+Slower storage (a Raspberry Pi 5's capped NVMe) is proportionally
+slower; the shape is the same. A **warm** resume, where the helper is
+still alive and the pages are still resident, is ~4 ms — no disk read
+at all. See [Thermal states → What "cold wake" actually
+costs](/docs/under-the-hood/thermal-states/#what-cold-wake-actually-costs)
+for the full breakdown.
 
-The full investigation lives at
-[`INVESTIGATION-cold-wake-cache.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/INVESTIGATION-cold-wake-cache.md)
-in the monorepo.
+Bhatti doesn't currently bias eviction of `memory.img` files in the
+page cache, or prefetch them ahead of a restore. Both are possible
+future optimizations, bounded by demand and not yet measured to clear
+a bar that matters; tracked for later.
 
-Bhatti doesn't currently bias eviction of `mem.snap` files in the
-page cache. Right after a snapshot is written, the pages are hot.
-Twenty-five minutes later, under memory pressure from a busy host,
-the kernel may have evicted them. The 360 ms p50 we publish accepts
-that as a fact of operating: in steady-state on a real host with
-real workloads, a cold wake reads `mem.snap` from disk.
+## No special filesystem needed
 
-`posix_fadvise(POSIX_FADV_WILLNEED)` immediately before
-`/snapshot/load` is a possible future optimization — it hints to the
-kernel to start prefetching while FC's own startup runs in parallel.
-Bounded by demand and not yet measured to clear an LRU-eviction bar
-that matters; tracked for future work.
+The headline for self-hosters: put `/var/lib/bhatti` on your normal
+root filesystem and you're done. ext4, xfs, btrfs, APFS — all give
+instant create-from-base and shared-base dedup, because CoW is in the
+qcow2 layer, not the filesystem.
 
-## What changes on ext4
+btrfs and xfs still offer *transparent compression* on the base
+images and bundles if you mount them that way, and it can shrink the
+data dir meaningfully. But that's an optimization you opt into, not a
+prerequisite the way btrfs+reflink was in v1. If you're coming from a
+v1 install on a btrfs loopback, you don't need to carry it forward —
+v2 is a fresh install.
 
-bhatti works correctly on ext4. The system doesn't refuse to start,
-no sandbox fails to boot, no snapshot is unsafe. What changes is
-performance and disk usage:
-
-- **`bhatti create` is ~10× slower.** The rootfs copy is a real
-  `read`/`write` loop (320 ms vs. 14 ms on btrfs). For 1 GiB base
-  images this is hundreds of milliseconds of wall-clock per create;
-  for the 4 GiB computer-tier base it's seconds.
-- **Per-sandbox disk usage is linear.** Where btrfs's per-sandbox
-  delta is the bytes the sandbox actually writes (typically single-
-  digit MiB until you install something heavy), on ext4 each sandbox
-  carries a sparse copy of its rootfs.ext4 — the *used* extents of
-  the source, around 232 MiB for the computer tier. 10 sandboxes
-  ≈ 2.3 GiB vs. ~1.1 GiB on btrfs.
-- **No zstd compression.** `mem.snap` files are full-size on disk
-  (the configured memory size). One stopped 1 GiB sandbox is 1 GiB
-  on disk; on btrfs it's 48 MiB.
-- **Snapshot resume copies the block devices for real.** Slower
-  resume, more disk write per restore cycle.
-- **The performance numbers on the homepage don't apply.** Those
-  are measured on btrfs and don't reflect the ext4 cost cliff.
-
-If you must run on ext4, the system still works correctly. If you
-have a choice — and most self-hosters do, since loopback btrfs works
-on any host — choose btrfs. See [Filesystem
-(recommended: btrfs)](/docs/self-hosting/#filesystem-recommended-btrfs)
-for the setup recipe.
-
-## xfs and others
-
-xfs with `reflink=1` also supports reflink. You'll get the create-
-time and disk-usage benefits but not the additional ~2× from zstd
-(xfs doesn't compress transparently). xfs's refcount btree degrades
-mildly for very high clone counts (thousands of sandboxes from one
-base image); btrfs handles arbitrary fanout.
-
-Other filesystems (zfs on Linux with `--reflink=auto` via OpenZFS
-2.2+, bcachefs) may also reflink — the `cp` falls back gracefully if
-the ioctl isn't supported. We haven't measured these in production.
+If you genuinely want the raw path — a plain ext4 root image instead
+of a qcow2 overlay, for native disk performance or to loop-mount the
+image on the host — set `KRUCIBLE_ROOT_RAW=1`. The daemon then clones
+the base into a raw `root.img` per sandbox instead of overlaying it
+([`pkg/engine/krucible/engine.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/krucible/engine.go)).
+You trade instant, dedup'd creates for a full base copy per sandbox —
+the qcow2 default is the right choice for almost everyone.
 
 ## See also
 
-- [Self-hosting → Filesystem
-  (recommended: btrfs)](/docs/self-hosting/#filesystem-recommended-btrfs)
-  — the setup recipe
+- [Self-hosting → Storage, no special filesystem
+  needed](/docs/self-hosting/#storage--no-special-filesystem-needed)
+  — the operator's short version
 - [Images → Disk
   usage](/docs/managing/images/#disk-usage) — what you see in
   `/var/lib/bhatti/images/` and `/var/lib/bhatti/sandboxes/<id>/`
 - [Thermal states](/docs/under-the-hood/thermal-states/) — the
-  state machine that decides when `mem.snap` gets written and read
+  state machine that decides when the memory image gets written and read
 - [Architecture → Where state
   lives](/docs/under-the-hood/architecture/#where-state-lives) —
   full inventory of `/var/lib/bhatti/`

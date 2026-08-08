@@ -6,7 +6,7 @@ description: Multi-tenant model — per-user API keys, resource caps, network is
 bhatti is multi-tenant by default. Every user gets:
 
 - An API key (`bht_<64-hex>`).
-- A `/24` bridge network of their own; sandboxes from different users cannot reach each other on layer 2.
+- Their own network: each user's sandboxes get a dedicated `bhatti-netd` gateway, so sandboxes from different users never share a network.
 - Per-user caps on sandbox count, per-sandbox CPU, and per-sandbox memory.
 - Their own secrets, volumes, snapshots, and images.
 
@@ -48,11 +48,13 @@ This is consistent across every endpoint that takes a sandbox ID.
 
 ## Network isolation
 
-Each user's sandboxes share a private bridge (`bhatti-<subnet-index>`) on a `/24` subnet. Cross-user traffic is blocked at the iptables layer. A user's own sandboxes can talk to each other (e.g. an agent sandbox can curl a worker sandbox at its private IP).
+User isolation isn't a host firewall — it's enforced at two layers. The API layer scopes every query to the authenticated user (see [Sandbox scoping](#sandbox-scoping) above). And at the data plane, each user's sandboxes get their own [`bhatti-netd`](/docs/under-the-hood/networking/) gateway — a per-owner userspace gVisor netstack — so cross-user traffic never shares a network in the first place. There are no host bridges or iptables rules to reason about.
 
-The subnet index is assigned on `user create` and shown in `bhatti user list`. You don't need to think about it; it just shows up in `bhatti inspect` output.
+A user's own sandboxes *can* reach each other (e.g. an agent sandbox can curl a worker sandbox), because they share one gateway; that traffic is still mediated and policed by netd rather than flowing peer-to-peer.
+
+The `subnet` index you may see in some CLI output is vestigial — it survives from the v1 per-user-bridge design and now just picks a private address octet for the gateway. It isn't a Linux bridge and you don't need to think about it.
 
 ## See also
 
 - [`bhatti user create`](/docs/reference/cli/admin/user-create/), [`list`](/docs/reference/cli/admin/user-list/), [`rotate-key`](/docs/reference/cli/admin/user-rotate-key/), [`delete`](/docs/reference/cli/admin/user-delete/)
-- [Networking](/docs/under-the-hood/networking/) — bridge layout, iptables rules, IP allocation
+- [Networking](/docs/under-the-hood/networking/) — the per-owner `bhatti-netd` gateway, policed egress, and host isolation

@@ -3,7 +3,7 @@ title: Self-Hosting
 description: Install the bhatti server on your hardware, add teammates, set a custom domain, back up the data directory.
 ---
 
-The [Quickstart](/docs/quickstart/) covers the install in three lines
+The [Quickstart](/docs/quickstart/) covers the install in a few lines
 and gets you to your first sandbox. This page is the longer version
 — what's actually happening on your server, how to add teammates,
 and the operational details I've picked up running bhatti on real
@@ -11,73 +11,36 @@ hardware.
 
 ## Requirements
 
-- Linux with KVM (`/dev/kvm` must exist and be readable)
-- Root access (Firecracker requires it; the daemon runs as root by
-  default and Firecracker drops to an unprivileged UID per VM via
-  the jailer — see
-  [Architecture → jailer mode](/docs/under-the-hood/architecture/#3-jailer-mode-is-the-production-path))
-- 1 GB+ RAM, NVMe recommended for snapshot performance
+bhatti v2 (krucible) self-hosts on two platforms:
 
-I run on:
+- **Linux with KVM** — `/dev/kvm` must exist and be readable. The
+  daemon runs under systemd (as root by default; it needs KVM). Any
+  aarch64 or x86_64 box works.
+- **macOS on Apple Silicon** — HVF (Hypervisor.framework). No root, no
+  KVM; the shipped `bhatti-vmm` is Developer-ID signed and notarized,
+  carries the hypervisor entitlement, and runs under launchd. Intel
+  Macs are not supported.
 
-- Two Raspberry Pi 5s with NVMe HATs (home, integration tests)
-- A Hetzner AX102 (Ryzen 9, NVMe — my main box)
+1 GB+ RAM; NVMe recommended for snapshot performance.
 
-Both are linked from the homepage benchmark. Anything in that
-ballpark or stronger works.
+I run on two Raspberry Pi 5s with NVMe HATs (home, integration tests),
+a Hetzner box, and my own Mac laptop. Anything in that ballpark or
+stronger works.
 
-## Filesystem (recommended: btrfs)
+## Storage — no special filesystem needed
 
-bhatti's `bhatti create`, snapshot create, and snapshot resume paths
-all lean on `cp --reflink=auto --sparse=always` for block-device
-copies
-([`pkg/engine/firecracker/fc.go::copyBlock`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/fc.go#L236)).
-On **btrfs** or **xfs** this is a metadata-only CoW clone — instant,
-near-zero disk. On **ext4** it falls back to a full sparse copy. Same
-correctness; very different time and disk cost. **The performance
-numbers on the homepage are measured on btrfs and don't apply on
-ext4.** See [Storage](/docs/under-the-hood/storage/) for the
-cost-by-filesystem breakdown.
+Unlike v1, **v2 has no btrfs/reflink requirement.** Copy-on-write lives
+at the disk-image-format layer: each sandbox gets a thin **qcow2
+overlay** over a shared read-only base image, so create-from-image is
+instant and one base is shared by many sandboxes' overlays — on
+**ext4, xfs, btrfs, and APFS alike**. The overhead is ~0.5% on typical
+agent/dev workloads. There's nothing to pre-provision; `/var/lib/bhatti`
+on your normal root filesystem is fine.
 
-The minimum viable setup is a btrfs loopback file. Do this **before**
-running the install script, so `/var/lib/bhatti` is already btrfs when
-the daemon first writes to it:
-
-```bash
-# Pre-install setup. 500 GiB is sized for tens to low-hundreds of
-# sandboxes; adjust to your disk. fallocate is instant on btrfs/xfs
-# hosts (just reserves space, no zero-write).
-sudo fallocate -l 500G /var/lib/bhatti-btrfs.img
-sudo mkfs.btrfs -f /var/lib/bhatti-btrfs.img
-sudo mkdir -p /var/lib/bhatti
-sudo mount -o loop,noatime,compress=zstd:1 \
-     /var/lib/bhatti-btrfs.img /var/lib/bhatti
-echo '/var/lib/bhatti-btrfs.img /var/lib/bhatti btrfs loop,noatime,compress=zstd:1 0 0' \
-     | sudo tee -a /etc/fstab
-```
-
-Loopback because it works on any host — you don't need a spare
-partition or a repartition. Native btrfs on `/var/lib/bhatti`'s
-underlying device is preferred on multi-disk hosts; the install
-works the same way.
-
-If bhatti is already running on ext4 and you want to switch, you'll
-need to stop the daemon and rsync the data dir across. The archived
-[migration
-recipe](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/MIGRATION-v0.5.14-btrfs.md)
-in the monorepo walks through that path; expect ~10–15 minutes of
-downtime.
-
-xfs also supports reflink and is a fine alternative if btrfs
-stability is a concern. xfs lacks transparent compression — you'll
-get reflink savings but not the additional ~2× from zstd on
-`mem.snap` files.
-
-If you must run on ext4, the system works correctly — only
-performance and disk usage are worse. See
-[Storage → What changes on
-ext4](/docs/under-the-hood/storage/#what-changes-on-ext4) for the
-concrete cost.
+(btrfs/xfs still give you transparent compression on the base images if
+you want it, but it's an optimization, not a prerequisite. If you have
+a v1 install on a btrfs loopback, you don't need to carry it forward —
+v2 is a fresh install, not an in-place upgrade.)
 
 ## Install
 
@@ -87,20 +50,24 @@ curl -fsSL bhatti.sh/install | sudo bash
 
 The script will:
 
-1. **Detect your architecture** (`arm64` or `amd64`) and the OS.
-2. **Prompt for a rootfs tier** (or pass `--tier <name>` to skip
-   the prompt; see below).
-3. **Download the components** (`bhatti`, `lohar`, Firecracker +
-   jailer, kernel, rootfs). Components that haven't changed since
-   a previous install are skipped automatically.
-4. **Install a systemd unit** at `/etc/systemd/system/bhatti.service`
-   and start the daemon.
-5. **Create an `admin` user** with high resource caps, save its API
-   key to `/root/.bhatti/config.yaml`, and **also save it to your
-   user's `~/.bhatti/config.yaml`** if you ran with `sudo` (so the
-   CLI on the same box works without an explicit `bhatti setup`).
-6. **Print the admin API key once** — save it. Anyone with this key
-   can do anything on this server.
+1. **Detect your platform** (`linux`/`darwin`, `arm64`/`amd64`).
+2. **Prompt for a rootfs tier** (or pass `--tier <name>` to skip the
+   prompt; see below).
+3. **Download one self-contained runtime bundle** — the `bhatti` CLI +
+   daemon, the `bhatti-vmm` VMM helper, the `bhatti-netd` gateway, the
+   `libkrun` (krucible) shared library, and the lean guest kernel —
+   plus the rootfs tier. It's laid down as a relocatable prefix under
+   `<data_dir>/runtime/`; the binaries resolve `libkrun` via a relative
+   rpath, so there's no system-library pollution.
+4. **Install a service** — a systemd unit at
+   `/etc/systemd/system/bhatti.service` on Linux, or a LaunchDaemon at
+   `/Library/LaunchDaemons/sh.bhatti.plist` on macOS — and start the
+   daemon.
+5. **Create an `admin` user**, save its API key to the invoking user's
+   `~/.bhatti/config.yaml` (so the CLI on the same box works without an
+   explicit `bhatti setup`).
+6. **Print the admin API key once** — save it. Anyone with this key can
+   do anything on this server.
 
 ### Rootfs tiers
 
@@ -111,9 +78,9 @@ The script will:
 | `docker` | + Docker Engine | ~550 MB |
 | `computer` | + Full desktop: XFCE, KasmVNC, Chromium | ~1.5 GB |
 
-You pick one tier as the *default* for `bhatti create` (used when
-you don't pass `--image`). Other tiers are still installable later
-and can be selected per sandbox with `--image <tier>`.
+You pick one tier as the *default* for `bhatti create` (used when you
+don't pass `--image`). Other tiers are still installable later and can
+be selected per sandbox with `--image <tier>`.
 
 ### Non-interactive install
 
@@ -131,9 +98,9 @@ curl -fsSL bhatti.sh/install | sudo bash -s -- --tiers all
 curl -fsSL bhatti.sh/install | sudo bash -s -- --tier docker --tiers browser
 ```
 
-`--tier` (singular) sets the *default* tier — what `bhatti create`
-uses when no `--image` is passed. `--tiers` (plural, comma-separated
-list or `all`) installs additional tiers alongside the default.
+`--tier` (singular) sets the *default* tier — what `bhatti create` uses
+when no `--image` is passed. `--tiers` (plural, comma-separated list or
+`all`) installs additional tiers alongside the default.
 
 ## Verifying the install
 
@@ -145,15 +112,13 @@ bhatti exec test -- uname -a
 bhatti destroy test
 ```
 
-If the create succeeds, the daemon is healthy, the engine has KVM
-access, the agent is reachable, and the CLI's config was written
-correctly.
+If the create succeeds, the daemon is healthy, the VMM has hypervisor
+access (KVM or HVF), the agent is reachable, and the CLI's config was
+written correctly.
 
 ## Adding teammates
 
-The remote-CLI flow that used to be Quickstart lives here.
-
-On the server:
+The remote-CLI flow. On the server:
 
 ```bash
 sudo bhatti user create --name alice --max-sandboxes 5 --max-cpus 4 --max-memory 4096
@@ -174,9 +139,10 @@ bhatti setup
 ```
 
 Now Alice can `bhatti create`, `bhatti exec`, etc. — but only against
-sandboxes she creates. Each user is isolated at the API layer
-(scoped queries) and at L2 (per-user bridge — see
-[Networking](/docs/under-the-hood/networking/)).
+sandboxes she creates. Each user is isolated at the API layer (scoped
+queries), and each user's sandboxes get their own `bhatti-netd` gateway
+so cross-user traffic never shares a network — see
+[Networking](/docs/under-the-hood/networking/).
 
 For driving bhatti from agents, CI, or provisioning scripts, use the
 non-interactive form: `bhatti setup --url ... --token ...`. The auth
@@ -186,29 +152,31 @@ provisioner picks up bad credentials immediately.
 ## Custom domain (optional but recommended)
 
 By default `bhatti publish` generates URLs at
-`<alias>.<your-server-ip>.nip.io` or similar — fine for testing,
-ugly for sharing. To get URLs like `my-app.yourdomain.com` with TLS,
-see [Custom domain](/docs/managing/custom-domain/).
+`<alias>.<your-server-ip>.nip.io` or similar — fine for testing, ugly
+for sharing. To get URLs like `my-app.yourdomain.com` with TLS, see
+[Custom domain](/docs/managing/custom-domain/).
 
 ## Backups
 
 What to back up:
 
-- `/var/lib/bhatti/state.db` — every sandbox/user/secret/template/volume
-  row. The daemon writes WAL, so a hot snapshot of just `state.db` may
-  be missing recent commits; back up `state.db` + `state.db-wal` +
+- `<data_dir>/state.db` — every sandbox/user/secret/template/volume
+  row. The daemon writes WAL, so back up `state.db` + `state.db-wal` +
   `state.db-shm` together, or run `sqlite3 .backup` for a clean copy.
-- `/var/lib/bhatti/age.key` — **the encryption key for every secret.**
-  Lose it and every encrypted secret on the server is unrecoverable.
-  Treat it the same way you'd treat a TLS private key.
-- `/var/lib/bhatti/volumes/` — standalone volumes (the ones created
-  with `bhatti volume create`). These are real ext4 images.
-- Per-sandbox files under `/var/lib/bhatti/sandboxes/` are usually
-  not worth backing up — sandboxes are reproducible from images and
-  init scripts. The exception is sandboxes whose state you actually
-  care about; for those, take a named snapshot
-  (`bhatti snapshot create <name> --label keep`) which writes a
-  self-contained copy under `/var/lib/bhatti/snapshots/`.
+- `<data_dir>/age.key` — **the encryption key for every secret.** Lose
+  it and every encrypted secret on the server is unrecoverable. Treat
+  it like a TLS private key.
+- `<data_dir>/volumes/` — standalone volumes (the ones created with
+  `bhatti volume create`). Real ext4 images.
+- Per-sandbox files under `<data_dir>/sandboxes/` are usually not worth
+  backing up — sandboxes are reproducible from images and init scripts.
+  For state you care about, take a named snapshot
+  (`bhatti snapshot create <name>`), which writes a self-contained
+  bundle under `<data_dir>/snapshots/`.
+
+You do **not** need to back up `<data_dir>/runtime/` — it's the
+relocatable binary/library/kernel bundle, re-laid on every install and
+update, not user data.
 
 For S3-compatible volume backups, see
 [Volumes → backups](/docs/managing/volumes/#backups).
@@ -216,7 +184,7 @@ For S3-compatible volume backups, see
 ## Updating
 
 ```bash
-sudo bhatti update                # bhatti + lohar + kernel + jailer
+sudo bhatti update                # refresh the whole runtime bundle + tiers
 sudo bhatti update --tiers all    # also pull additional rootfs tiers
 ```
 
@@ -227,12 +195,14 @@ curl -fsSL bhatti.sh/install | sudo bash
 ```
 
 The install script is idempotent — it skips components that haven't
-changed and updates the rest.
+changed and updates the rest. Note that a `bhatti update` within v2 is
+safe; crossing from a v1 (Firecracker) install is **blocked** (different
+VMM, different on-disk layout) — install v2 fresh instead.
 
 ## Uninstalling
 
 ```bash
-# Remove binaries + service, keep /var/lib/bhatti so you can reinstall
+# Remove binaries + service, keep <data_dir> so you can reinstall
 curl -fsSL bhatti.sh/uninstall | sudo bash
 
 # Remove everything, including all sandbox state, volumes, and age.key
@@ -244,18 +214,18 @@ key, every secret, every sandbox, every volume.
 
 ## Where each thing lives
 
-The full layout is on the
-[Architecture page](/docs/under-the-hood/architecture/#where-state-lives).
+The full layout is in the
+[Configuration reference](/docs/reference/config/#data-directory-layout).
 Short version:
 
-- `/var/lib/bhatti/state.db` — SQLite, the source of truth
-- `/var/lib/bhatti/age.key` — secret encryption key (back this up)
-- `/var/lib/bhatti/images/` — read-only base rootfs templates + kernel
-- `/var/lib/bhatti/sandboxes/<id>/` — per-sandbox: rootfs, config drive, snapshots
-- `/var/lib/bhatti/volumes/` — standalone volumes
-- `/var/lib/bhatti/snapshots/` — named snapshots from `bhatti snapshot create`
-- `/var/lib/bhatti/jails/` — jailer chroots (one per running sandbox)
-- `/etc/bhatti/config.yaml` — daemon config (engine, listen, domain)
+- `<data_dir>/state.db` — SQLite, the source of truth
+- `<data_dir>/age.key` — secret encryption key (back this up)
+- `<data_dir>/runtime/` — the VMM/gateway/libkrun/kernel bundle (not user data)
+- `<data_dir>/images/` — read-only base rootfs templates
+- `<data_dir>/sandboxes/<id>/` — per-sandbox: CoW overlay, config drive, snapshot bits
+- `<data_dir>/volumes/` — standalone volumes
+- `<data_dir>/snapshots/` — named snapshots from `bhatti snapshot create`
+- `/etc/bhatti/config.yaml` — daemon config (engine, runtime paths, listen, domain)
 
 ## Next steps
 
@@ -263,7 +233,7 @@ Short version:
   limits, deleting users
 - [Custom domain](/docs/managing/custom-domain/) — TLS for `bhatti
   publish`, ACME, wildcard DNS
-- [Concepts](/docs/concepts/) — mental model for sandboxes and
-  thermal states
-- [Architecture](/docs/under-the-hood/architecture/) — what each
-  process does and how state flows
+- [Concepts](/docs/concepts/) — mental model for sandboxes and thermal
+  states
+- [Architecture](/docs/under-the-hood/architecture/) — what each process
+  does and how state flows

@@ -121,7 +121,7 @@ bhatti exec desk -- systemctl restart xfce-session # just the desktop, X server 
 
 The pre-v1.11.9 `init.sh` started a system `dbus-daemon`, an orphan session bus via `dbus-launch`, and `pulseaudio`. None of those are started in the systemd-unit model. The reasoning:
 
-- **`dbus-daemon --system`** keeps long-lived inotify watches on `/etc/dbus-1/`, an epoll on its listening socket, and per-connection timers. Firecracker snapshot/restore doesn't preserve all kernel-side poller state cleanly on ARM64 — the same reason lohar runs as PID 1 instead of real systemd ([Decisions & learnings](/docs/under-the-hood/decisions/)).
+- **`dbus-daemon --system`** keeps long-lived inotify watches on `/etc/dbus-1/`, an epoll on its listening socket, and per-connection timers. microVM snapshot/restore doesn't preserve all kernel-side poller state cleanly on ARM64 — the same reason lohar runs as PID 1 instead of real systemd ([Decisions & learnings](/docs/under-the-hood/decisions/)).
 - **`dbus-launch`** in the original init.sh ran a session bus tied to the boot shell's scope, leaked its address into the `startxfce4` env, and orphaned when init.sh exited. A bug, not a feature. Modern XFCE (4.16+) launches its own per-session bus on demand when it actually needs one.
 - **`pulseaudio`** wasn't connected to any sink and no documented agent flow uses audio.
 

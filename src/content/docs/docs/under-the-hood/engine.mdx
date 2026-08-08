@@ -1,231 +1,242 @@
 ---
-title: "The Firecracker engine: HTTP API, jailer, rate limits"
-description: "How bhatti talks to Firecracker — the actual API calls during boot, the jailer setup, rate limiter configuration, and the implementation choices behind it."
+title: "The krucible engine: control socket, block-root boot, snapshots"
+description: "How bhatti drives its VMM — the out-of-band control socket, the krun_* boot sequence, the qcow2 block-root substrate, the lean kernel, and why bhatti owns the fork."
 ---
 
 This page is the lower-level companion to
 [Architecture](/docs/under-the-hood/architecture/). It walks through
-what the Firecracker engine actually does to boot a VM, what HTTP
-calls it sends, what the jailer setup looks like, and how the rate
-limiters work.
+what the krucible engine actually does to boot a VM, how the daemon
+drives the VMM from outside, what the storage substrate looks like,
+and why bhatti maintains its own hypervisor fork.
 
 If you're using bhatti, you don't need this page. If you're hacking on
-the engine, extending it, or debugging a weird FC-level failure, this
+the engine, extending it, or debugging a weird VMM-level failure, this
 is the reference.
+
+**krucible** is bhatti's fork of
+[libkrun](https://github.com/containers/libkrun) — an in-process VMM
+library. bhatti extended it with pause/resume, snapshot/restore, a
+control socket, block-root boot, and a lean external kernel. It runs
+on **KVM** (Linux, `/dev/kvm`) and **HVF** (macOS, Apple Silicon).
 
 ## Design decisions on this page
 
-1. **No Firecracker SDK.** We talk directly to FC's Unix-socket
-   HTTP API with ~20 lines of helpers. The reasoning lives on the
-   [Architecture page](/docs/under-the-hood/architecture/#2-we-talk-to-firecracker-directly-no-sdk);
-   this page covers what the API surface actually looks like in code.
-2. **Jailer mode is opt-in via config.** Without jailer, FC runs as
-   root. With jailer, each VM's FC process drops to an unprivileged
-   UID inside a chroot. Single-user dev: skip the jailer. Multi-tenant:
-   turn it on. See [Jailer mode](#jailer-mode).
-3. **Rate limiters are off by default.** Firecracker's per-drive and
-   per-network rate limiters add overhead and aren't useful on a
-   single-user box. We configure them only when you set them. See
-   [Rate limiting](#rate-limiting).
-4. **We never use FC's diff snapshots.** `track_dirty_pages: false`
-   in machine-config means every snapshot is Full. The full reasoning
-   is in [Thermal states](/docs/under-the-hood/thermal-states/#why-all-snapshots-are-full).
+1. **The daemon never links the VMM.** libkrun's entry call *becomes*
+   the VM and blocks forever, so bhatti puts it in a separate process
+   (`bhatti-vmm`) and drives it out-of-band over a **control socket**.
+   See [The control socket](#the-control-socket).
+2. **We own the fork.** Pause, resume, snapshot, restore, and fork are
+   permanently off upstream libkrun's roadmap — and they're the whole
+   point of bhatti's thermal model — so bhatti maintains krucible
+   rather than wrap a stock VMM. See
+   [Why bhatti owns the VMM](#why-bhatti-owns-the-vmm).
+3. **Block-root, qcow2 copy-on-write.** The guest boots from a qcow2
+   CoW overlay over a shared base image, so create is instant and
+   filesystem-independent. See
+   [The block-root substrate](#the-block-root-substrate).
+4. **All snapshots are Full.** There are no diff or dirty-page
+   snapshots in krucible — a checkpoint always writes the whole memory
+   image. The full reasoning is in
+   [Thermal states](/docs/under-the-hood/thermal-states/#why-all-snapshots-are-full).
 
-## The HTTP adapter
+## The control socket
 
-Bhatti's entire FC-API layer is a Unix-socket-aware `http.Client` and
-three helpers. From
-[`pkg/engine/firecracker/fc.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/fc.go):
+The daemon and the VMM are two processes. `bhatti-vmm` links libkrun
+and calls `krun_start_enter`, which *becomes* the guest and only
+returns on a boot error — so the daemon can't call into it. Instead
+the daemon drives the running VM from outside over a tiny Unix-socket
+**control socket** (`krun_set_control_socket` in the fork).
 
-```go
-func fcAPIClient(socketPath string) *http.Client {
-    return &http.Client{Transport: &http.Transport{
-        DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-            var d net.Dialer
-            return d.DialContext(ctx, "unix", socketPath)
-        },
-    }}
-}
-
-func fcPut(ctx context.Context, c *http.Client, path, body string) error {
-    req, _ := http.NewRequestWithContext(ctx, "PUT",
-        "http://localhost"+path, strings.NewReader(body))
-    req.Header.Set("Content-Type", "application/json")
-    resp, err := c.Do(req)
-    // ... check status, read body on error, done
-}
-```
-
-Plus `fcPatch` and `fcGet` along the same lines. Every Firecracker
-API call goes through one of these three. JSON bodies are built with
-`fmt.Sprintf` from the call site (yes, really — see the boot
-sequence below for what that looks like in practice).
-
-## Boot sequence: what FC sees
-
-A `bhatti create` walks through a fixed sequence of API calls. The
-order matters — FC enforces it (you can't set drives before
-machine-config is set, you can't `InstanceStart` before drives are
-registered).
-
-In `pkg/engine/firecracker/create.go`, each phase emits a `phase()`
-marker so the create timing is visible if you crank logging up. The
-sequence:
+The protocol is line-oriented text. From
+[`pkg/engine/krucible/control.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/krucible/control.go):
 
 ```
-1. Write bootArgs to /boot-source
-   PUT /boot-source
-   {"kernel_image_path":".../vmlinux-arm64",
-    "boot_args":"reboot=k panic=1 pci=off 8250.nr_uarts=0
-       init=/usr/local/bin/lohar quiet loglevel=0
-       ip=10.0.1.2::10.0.1.1:255.255.255.0::eth0:off:1.1.1.1:8.8.8.8:"}
-
-2. Configure rootfs drive (read-write)
-   PUT /drives/rootfs
-   {"drive_id":"rootfs","path_on_host":".../rootfs.ext4",
-    "is_root_device":true,"is_read_only":false}
-
-3. Configure machine
-   PUT /machine-config
-   {"vcpu_count":2,"mem_size_mib":1024,
-    "track_dirty_pages":false,"huge_pages":"None"}
-
-4. Configure entropy device (so guests don't block on getrandom())
-   PUT /entropy
-   {"rate_limiter":{"bandwidth":{"size":1024,"one_time_burst":8192,"refill_time":100}}}
-
-5. Configure balloon device
-   PUT /balloon
-   {"amount_mib":0,"deflate_on_oom":true,"stats_polling_interval_s":5}
-
-6. Configure config drive (read-only)
-   PUT /drives/config
-   {"drive_id":"config","path_on_host":".../config.ext4",
-    "is_root_device":false,"is_read_only":true}
-
-7. Configure each volume drive (vdc, vdd, …)
-   PUT /drives/vol-<name>
-   {"drive_id":"vol-<name>","path_on_host":".../vol-<name>.ext4", ...}
-
-8. Configure network interface
-   PUT /network-interfaces/eth0
-   {"iface_id":"eth0","host_dev_name":"tapXXXXXXXX","guest_mac":"02:..."}
-
-9. Configure vsock (still configured even though we don't use it post-boot)
-   PUT /vsock
-   {"vsock_id":"vsock0","guest_cid":3,"uds_path":".../vsock.sock"}
-
-10. Start the instance
-    PUT /actions
-    {"action_type":"InstanceStart"}
+PAUSE            -> OK paused | ERR <reason>
+RESUME           -> OK running | ERR <reason>
+STATUS           -> OK <state>            (running|pausing|paused|resuming)
+SNAPSHOT <dir>   -> OK                     (write RAM + device + vCPU state to <dir>)
 ```
 
-Steps 4 (entropy) and 5 (balloon) are easy to miss but matter. Without
-the entropy device, the guest's `getrandom()` blocks at boot waiting
-for entropy that the kernel never gathers (microVMs don't have a
-physical entropy source). Without the balloon, the
-[balloon trick](/docs/under-the-hood/thermal-states/#the-balloon-trick)
-during hot→warm doesn't work.
+Four verbs. Everything the thermal manager and the snapshot code
+needs is composed from them:
 
-After `InstanceStart`, the host pre-populates the
-[ARP cache](/docs/under-the-hood/networking/#the-arp-trick) with the
-guest's MAC and starts polling TCP :1024 with `exec true`. When the
-agent answers, the create returns to the user.
+- **Warm pause / resume** ([Thermal states](/docs/under-the-hood/thermal-states/#cold--hot))
+  is a bare `PAUSE` / `RESUME` — the vCPUs freeze, memory stays
+  resident, resume is ~4 ms.
+- **Checkpoint** (a memory snapshot) is `PAUSE`, `SNAPSHOT <dir>`,
+  `RESUME` — captured *without stopping* the sandbox. libkrun writes
+  `manifest.json`, `checkpoint.bin`, and `memory.img` into `<dir>`.
+- **Restore** is not a control-socket verb at all: it's a fresh
+  `bhatti-vmm` launched with `krun_set_snapshot(<dir>)`, so libkrun
+  reloads `memory.img` instead of cold-booting.
+- **Fork** (`create --from`) is a checkpoint into a throwaway bundle,
+  immediately restored into a new sandbox identity, then the bundle
+  is discarded. Instant, and the source is undisturbed.
 
-## Jailer mode
+The lock discipline around these transitions — `launchMu` before
+`mu`, capture-and-release for long-running agent calls — is on the
+[Architecture page](/docs/under-the-hood/architecture/#4-per-vm-mutex-with-capture-and-release).
 
-[Firecracker's Jailer](https://github.com/firecracker-microvm/firecracker/blob/main/docs/jailer.md)
-is the recommended way to run FC in production. It chroots each VM's
-FC process into a private directory, drops to an unprivileged UID/GID,
-and applies a seccomp filter. Bhatti's jailer integration is in
-[`pkg/engine/firecracker/jail.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/jail.go).
+## Boot sequence: what the VMM does
 
-When `firecracker_jailer` and `jail_uid`/`jail_gid` are set in
-`config.yaml`, the engine:
+A `bhatti create` spawns `bhatti-vmm` with a `VMSpec`, and the helper
+walks a fixed sequence of `krun_*` calls before it becomes the VM. The
+order matters — disks must be added so they enumerate in the right
+order, devices must precede the port bridges. From
+[`cmd/vmm/main.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/vmm/main.go):
 
-1. Creates the chroot at
-   `<data_dir>/jails/firecracker/<sandbox_id>/`.
-2. Resolves all file references — kernel, rootfs, config drive,
-   volumes — to chroot-relative paths. The actual files don't need to
-   move; jailer hardlinks them into the chroot.
-3. Spawns FC as `jailer ... --exec-file /path/to/firecracker --uid
-   <uid> --gid <gid> --id <sandbox_id> --chroot-base-dir
-   <data_dir>/jails ...`.
-4. Talks to FC's API socket through the chroot path.
+```
+1.  krun_create_ctx()                     new VM context
+2.  krun_set_vm_config(vcpus, mem_mib)     CPU + RAM
 
-For snapshot operations under jailer, FC writes the snapshot artifacts
-inside the chroot, then bhatti moves them out atomically after FC
-exits — see
-[`pkg/engine/firecracker/lifecycle.go:84-94`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L84-L94).
+3.  krun_set_kernel(lean kernel, cmdline)  load our own kernel;
+      cmdline carries root=/dev/vda init=/usr/local/bin/lohar
+      (this makes krun_start_enter skip libkrunfw entirely)
 
-Without jailer, FC runs as root with full host visibility. Single-user
-dev: this is fine. Multi-tenant: turn it on. The jailer hardens the
-isolation between FC processes — a kernel exploit that breaks out of
-KVM still has to get past seccomp + UID + chroot before reaching
-anything that matters.
+4.  krun_set_root_disk2(root, QCOW2|RAW)   root overlay -> /dev/vda
+5.  krun_add_disk("config", drive, rw)     config drive -> /dev/vdb
+6.  krun_add_virtiofs3(...)   (optional)   live --mount host-dir binds
+7.  krun_add_disk2(vol, fmt, ro)  × N      volumes -> /dev/vdc+
 
-## Rate limiting
+8.  krun_add_virtio_console_default(...)   console -> the daemon's log
+9.  krun_add_vsock(features)               plain vsock (net backend on)
+                                           or TSI-inet hijack (net off)
+10. krun_add_net_unixstream(uds, mac, ...) virtio-net -> bhatti-netd
+                                           (only with the net backend)
+11. krun_add_vsock_port2(1024, ctrl-uds)   agent control plane bridge
+    krun_add_vsock_port2(1025, fwd-uds)    agent forward plane bridge
+12. krun_set_control_socket(ctrl-uds)      the PAUSE/RESUME/etc. socket
+13. krun_set_snapshot(bundle)  (optional)  cold-restore instead of boot
 
-Firecracker supports per-drive and per-network bandwidth and IOPS
-rate limiters
-([FC rate limiter docs](https://github.com/firecracker-microvm/firecracker/blob/main/docs/design.md#io-storage-networking-and-rate-limiting)).
-Bhatti's wrapper is in
-[`pkg/engine/firecracker/engine.go:21-34`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/engine.go#L21-L34):
-
-```go
-type RateLimitConfig struct {
-    NetBandwidthBytes  int64 // bytes/s per direction
-    NetBurstBytes      int64 // one-time burst bytes
-    DiskBandwidthBytes int64 // bytes/s
-    DiskIOPS           int64 // ops/s
-}
+14. krun_start_enter()                     THIS PROCESS BECOMES THE VM
 ```
 
-Defaults are zero, which means **disabled**. We don't apply rate
-limiters unless you configure them. The reasoning: FC's rate limiter
-is a token-bucket per drive/iface, and on a single-user box it adds
-syscall overhead without any real benefit.
+A few of these are easy to miss but load-bearing:
 
-When configured, the limiters apply at the drive and network-interface
-level via FC's API. For drives this is in
-[`create.go:298-302`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/create.go#L298-L302):
+- **Step 3 is the whole "lean kernel" story** (below). Setting an
+  external kernel makes libkrun skip its bundled `libkrunfw`; the
+  cmdline supplies `init=`, so `lohar` boots as PID 1 directly. On the
+  bundled-kernel path instead, `krun_disable_implicit_init` is called
+  so libkrun doesn't inject its own `/init.krun` ahead of lohar.
+- **Step 9's vsock is dual-purpose.** With the network gateway on
+  (the default), the guest's real networking goes over `eth0` via
+  `bhatti-netd`, so the vsock device is added *plain* and used only
+  for the agent port bridges (step 11). With the legacy TSI backend,
+  the same vsock carries `KRUN_TSI_HIJACK_INET` so the guest borrows
+  the host netstack — see [Networking](/docs/under-the-hood/networking/).
+- **Step 11 is how the daemon reaches lohar.** The host dials the
+  bridge UDS and libkrun forwards it to the guest port where lohar
+  listens: `1024` for the control plane (exec, files, sessions),
+  `1025` for the forward plane (port forwarding). This is plain vsock,
+  not TCP over a host network device.
 
-```go
-if bw := e.cfg.RateLimits.diskBandwidth(); bw > 0 {
-    iops := e.cfg.RateLimits.diskIOPS()
-    rootfsDrive += fmt.Sprintf(
-        `,"rate_limiter":{"bandwidth":{"size":%d,"refill_time":1000},
-                            "ops":{"size":%d,"refill_time":1000}}`,
-        bw, iops)
-}
-```
+After `krun_start_enter`, the daemon polls the agent control bridge
+until lohar answers, then the create returns to the user. There is no
+ARP priming and no host-side IP plumbing — the guest reaches the
+network through `bhatti-netd`, and the daemon reaches the guest
+through vsock.
 
-`refill_time` is in milliseconds — `1000` means the bucket refills
-once per second. So a `DiskBandwidthBytes: 100_000_000` config gives
-each VM 100 MB/s sustained disk throughput.
+## The block-root substrate
 
-For a multi-tenant deployment, useful values:
+krucible boots from a **block device**, not a shared host directory.
+Each sandbox's root is a **qcow2 copy-on-write overlay** stacked over
+a single read-only base image (`krun_set_root_disk2` with the qcow2
+format; the overlay is provisioned by `krun_create_disk_overlay`,
+imago-backed, in the fork). The guest sees an ordinary ext4 at
+`/dev/vda`; libkrun translates qcow2 host-side.
 
-```yaml
-firecracker:
-  rate_limits:
-    net_bandwidth: 12500000   # 100 Mbps per direction
-    net_burst: 10000000       # 10 MB burst
-    disk_bandwidth: 104857600 # 100 MB/s
-    disk_iops: 10000          # 10K ops/s
-```
+Because CoW lives at the image-format layer, it's
+**filesystem-independent** — ext4, XFS, btrfs, APFS all give instant
+create and base-sharing, with roughly 0.5% overhead on agent
+workloads. There is **no btrfs or reflink requirement**; that was a v1
+constraint. Setting `KRUCIBLE_ROOT_RAW=1` opts a sandbox out of qcow2
+onto a raw image (losing the instant-clone property on non-CoW
+filesystems).
 
-These give each VM a hard ceiling so one noisy neighbor can't
-saturate the host's disk or upstream link.
+The rest of the device set stacks on top in a fixed order:
+
+- `/dev/vda` — the qcow2 root overlay
+- `/dev/vdb` — the ~1 MB config drive (a raw ext4 lohar mounts
+  read-only to read hostname, env, secrets, attached-volume specs, and
+  the per-sandbox token)
+- `/dev/vdc+` — attached block volumes, in attach order
+
+A memory checkpoint or fork restores the **whole device set**, not
+just RAM: `Checkpoint` freezes each attached volume as an independent
+copy consistent with the paused VM and records it in `manifest.json`;
+restore clones each back and re-attaches it, so the restored RAM's
+view of its disks stays valid. See
+[Storage](/docs/under-the-hood/storage/) for the format details.
+
+## The lean external kernel
+
+krucible boots its **own kernel** instead of the one bundled inside
+`libkrunfw`. `krun_set_kernel` (step 3 above) hands libkrun an
+external `Image` (arm64) or `vmlinux` (x86_64) plus a full boot
+cmdline, and libkrun skips `libkrunfw` entirely.
+
+The payoff is speed. It's the same 6.12.x kernel `libkrunfw` ships,
+but built with a lean config (roughly 1,000 options versus ~1,400) —
+just what a microVM guest needs. The result is about **2× faster
+cold-start**: boot→agent measured at ~312 ms versus ~610 ms on HVF,
+validated cross-arch on HVF and on KVM (arm64 + x86_64). The kernel is
+*ours* — pinned, reproducible, built from the config under
+`scripts/lean-kernel/` via
+[`scripts/build-lean-kernel.sh`](https://github.com/sahil-shubham/bhatti/blob/main/scripts/build-lean-kernel.sh)
+(see [Contributing → the kernel](/docs/contributing/kernel/) for the build).
+
+The lean kernel is opt-in-by-presence: point `krucible_kernel_image`
+at it (the install lays it under `runtime/kernel/`), or leave it unset
+and the daemon falls back to the bundled `libkrunfw` kernel. The
+external kernel is what enables the block-root path — it's the one
+that reads `root=/dev/vda init=/usr/local/bin/lohar` from the cmdline.
+
+## Why bhatti owns the VMM
+
+bhatti forks libkrun rather than depending on it, and that's a
+deliberate, load-bearing choice.
+
+The entire thermal model — warm pause/resume, cold snapshot/restore,
+and fork — depends on the VMM being able to freeze a running guest,
+serialize its RAM + device + vCPU state to disk, and reconstruct it
+later (in the same process, or a fresh one, or a *new identity*).
+Stock libkrun does none of that, and those capabilities are
+**permanently off its upstream roadmap** — it's designed to launch a
+workload and run it, not to checkpoint and clone live VMs. There is no
+config flag that turns them on.
+
+So the capabilities live in the fork:
+
+- **`krun_set_control_socket`** — the PAUSE/RESUME/STATUS/SNAPSHOT
+  channel the daemon drives from outside.
+- **Snapshot / restore** — `SNAPSHOT <dir>` and
+  `krun_set_snapshot(<dir>)`, including the GIC save/restore on arm64
+  KVM that makes cold-restore work there.
+- **Warm-clock freeze** — a paused guest's `CLOCK_MONOTONIC` must not
+  jump forward by the pause duration on resume; the fork rewinds the
+  guest-visible virtual counter.
+- **Block-root + qcow2** — `krun_set_root_disk2` and
+  `krun_create_disk_overlay`, the CoW substrate above.
+- **The external-kernel path** — `krun_set_kernel` skipping
+  `libkrunfw`.
+
+The cost is real: bhatti carries a hypervisor fork
+([`libkrucible`](https://github.com/sahil-shubham/bhatti), vendored as
+a git submodule; the gitlink SHA is the version-of-record), rebased
+onto upstream libkrun on its own cadence. The upside is that pause,
+resume, snapshot, restore, and fork *exist at all* — and they're not
+bolted on, they're first-class in the VMM. For an agent-sandbox
+platform whose whole economics rest on sub-second cold wake, that
+trade is the point.
 
 ## Listening port discovery
 
 When a request hits a sandbox proxy URL, the daemon needs to know
 which ports the guest has open. Rather than maintain a host-side
-registry that gets stale, bhatti just asks the guest:
+registry that gets stale, bhatti just asks the guest over the agent:
 
 ```go
-// pkg/engine/firecracker/exec.go:198
+// pkg/engine/krucible/agent.go
 result, _ := ag.Exec(ctx, []string{"ss", "-tln", "--no-header"}, nil, "")
 return parseSSOutput(result.Stdout), nil
 ```
@@ -238,87 +249,83 @@ queries the kernel directly rather than walking `/proc/net/tcp`.
 The trade-off: this only works on hot VMs. The `ListeningPorts` call
 errors out for warm or cold sandboxes. The public proxy handles this
 by `ensureHot`-ing the sandbox first — if you publish a port and a
-request hits the cold URL, the proxy wakes the VM, queries ports,
-checks that the requested port is in the list, then forwards.
+request hits the cold URL, the proxy wakes the VM (a sub-second
+cold-restore), queries ports, checks that the requested port is in the
+list, then forwards.
 
 ## Recovery: what gets persisted
 
-FC's state machine doesn't survive process restart on its own — you
-get a fresh FC process every time. Bhatti persists the per-VM
-configuration as JSON in the `fc_state` table so the next daemon
-startup can rebuild and resume.
+The VMM doesn't survive a daemon restart on its own — a crashed or
+restarted daemon inherits helper processes that may or may not still
+be alive. krucible persists everything needed to re-adopt or re-launch
+each sandbox to a **per-sandbox `state.json`**, and the helpers are
+spawned *detached* from the daemon's process group so they outlive it.
 
-The state captured per VM
-([`pkg/engine/firecracker/helpers.go:120-180`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/helpers.go#L120-L180)):
+The record captured per VM
+([`pkg/engine/krucible/recovery.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/krucible/recovery.go)):
 
-- `vcpu_count`, `mem_size_mib`
-- `tap_device`, `guest_ip`, `guest_mac`
-- `rootfs_path`, `snap_mem_path`, `snap_vm_path`
-- `volumes` — list of attached volume IDs and mount points
-- `agent_token` — for reattaching to the agent after restore
-- `fc_path_origin` — the original sandbox ID whose paths got baked
-  into the snapshot (matters when you create a sandbox from a named
-  snapshot — see below)
-- `keep_hot`
+- `id`, `name`, `user_id`, `status`, `thermal`
+- `sandbox_dir`, `sock_dir`, `bundle_dir` (the cold-snapshot bundle),
+  `log_path`
+- `base_spec` — the full spec to re-launch or cold-restore with
+- `helper_pid` — the `bhatti-vmm` PID, for adopt-by-PID
+- `netd_key`, `subnet_idx` — the owner's shared `bhatti-netd` gateway,
+  so recovery re-adopts the running gateway instead of respawning onto
+  a socket it still holds
 
-On daemon startup,
-[`recoverVMs`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/bhatti/main.go)
-reads each row, calls `engine.RestoreVM(...)`, and the engine rebuilds
-the in-memory `VM` struct from the persisted state. If the snapshot
-files exist and the FC process is dead, the VM is marked `stopped` —
-ready to resume on the next API call.
+On daemon startup the engine globs every `sandboxes/*/state.json` and,
+for each, decides:
 
-### `fc_path_origin` and snapshot-derived sandboxes
+- **Adopt** if the recorded PID is still alive *and* its agent answers
+  a vsock probe — the sandbox is running, no restart.
+- **Cold** if the helper is dead but a cold-snapshot bundle exists —
+  marked `stopped`, ready to cold-restore from the bundle on the next
+  request.
+- **Stopped** otherwise — a dead helper with no bundle (RAM gone, but
+  the qcow2 root persists) needs an explicit `Start` to cold-boot
+  fresh.
 
-When you create a sandbox from a named snapshot
-(`bhatti snapshot resume <snap> --name new-vm`), FC's snapshot file
-contains absolute paths to the rootfs and config files of the
-*original* sandbox. Those paths don't exist anymore (the original may
-have been destroyed) and even if they did, we'd be operating on the
-wrong files.
+There's no system-wide device cleanup afterward, because there are no
+host TAP devices, bridges, or iptables rules to leave behind — the
+network lives entirely inside `bhatti-netd`.
 
-The fix in
-[`lifecycle.go:354-380`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L354-L380)
-is to symlink the original paths to the new paths just before
-`/snapshot/load`, then remove the symlinks once FC has the file
-descriptors open. Hacky. Effective. Documented in the commit history
-because it tripped up several rounds of debugging.
+## Cold-snapshot bundle layout
 
-In jailer mode, this isn't an issue because all paths are
-chroot-relative — FC only sees its own chroot. The symlink dance is a
-bare-mode concession.
-
-## Snapshot artifact layout
-
-A cold sandbox has, on disk:
+A cold sandbox — or a named snapshot from `bhatti snapshot create` —
+has a self-contained bundle on disk. A memory snapshot writes:
 
 ```
-<data_dir>/sandboxes/<id>/
-├── rootfs.ext4         CoW copy, may have been written to
-├── config.ext4         the 1MB config drive
-├── vol-<name>.ext4     attached volumes
-├── mem.snap            full memory snapshot (size of VM RAM)
-└── vm.snap             VM state snapshot (small, KB-range)
+<bundle-dir>/
+├── manifest.json      arch/feature gate, config-drive + token, volumes, mounts
+├── checkpoint.bin      VM + device + vCPU state (small)
+├── memory.img          full guest RAM image (size of the VM's allocated RAM)
+├── <root overlay>      the qcow2 root at snapshot time
+└── vol0.img, vol1.img  frozen copies of attached volumes, if any
 ```
 
-`mem.snap` is the size of the VM's allocated RAM. If you have a 4 GB
-VM that's been cold for an hour, `mem.snap` is 4 GB on disk. `vm.snap`
-is small — it holds CPU registers, vCPU state, and FC's device-model
-state.
+`memory.img` is the size of the VM's allocated RAM. A 4 GB VM that's
+been cold for an hour has a 4 GB `memory.img` on disk. `checkpoint.bin`
+is small — CPU registers, vCPU state, and device-model state.
 
-For named snapshots (created via `bhatti snapshot create`), the
-artifacts go to `<data_dir>/snapshots/<user>/<name>/` and include
-copies of the rootfs and volumes alongside `mem.snap` and `vm.snap`,
-so the snapshot is fully self-contained — you can resume it into a
-fresh sandbox even after the original is destroyed.
+`manifest.json` is what makes a snapshot portable and safe. It records
+the host architecture and feature set, so restore **refuses a
+cross-arch bundle cleanly** rather than crashing; and it lists the
+config drive, the per-sandbox token to re-enforce from RAM, and every
+attached volume, so a restore into a *fresh sandbox* — even after the
+original is destroyed — reconstructs the full device set. A
+`filesystem`-type snapshot is disk-only (no `memory.img`); it restores
+with a cold boot rather than a memory reload.
 
 ## Where to go next
 
 - [Architecture](/docs/under-the-hood/architecture/) — the bird's-eye
   view that this page sits underneath
 - [Thermal states](/docs/under-the-hood/thermal-states/) — what the
-  engine does for `Stop`/`Start`/`Pause`/`Resume`
-- [Networking](/docs/under-the-hood/networking/) — the bridge, TAP,
-  and IP plumbing that the create flow above depends on
+  engine does for `Stop`/`Start`/`Pause`/`Resume`, and why all
+  snapshots are Full
+- [Networking](/docs/under-the-hood/networking/) — the `bhatti-netd`
+  gVisor gateway, the vsock forward primitive, and TSI
+- [Storage](/docs/under-the-hood/storage/) — the qcow2 CoW substrate,
+  volumes, and the cost-by-filesystem story
 - [Decisions & learnings](/docs/under-the-hood/decisions/) — the
-  no-SDK choice, the rory incident, and other engine-level lessons
+  own-the-fork choice and other engine-level lessons

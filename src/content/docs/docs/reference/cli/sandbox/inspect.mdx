@@ -19,6 +19,8 @@ bhatti info <sandbox>`}</Synopsis>
 
 Prints status, thermal state, image, creation/stop timestamps, resource allocation, network info, and `keep_hot`. For sandboxes in the `running` state, disk usage is queried live by running `df -m /` inside the guest — the row shows total / used / free in MB.
 
+krucible sandboxes report no guest IP, so the `IP` line is empty — reach a sandbox through a published URL or the reverse proxy, not a guest address.
+
 Stopped sandboxes show their static disk size; the live `df` query is skipped to avoid waking them.
 
 Use `--json` to get the full sandbox record as JSON for scripting.
@@ -43,7 +45,7 @@ Resources:
   Disk:     8192 MB (1247 MB used, 6945 MB free)
 
 Network:
-  IP:       192.168.137.2
+  IP:
 ```
 
 ```bash
@@ -74,7 +76,7 @@ Resources:
   Disk:     — (stopped)
 
 Network:
-  IP:       192.168.137.8
+  IP:
 ```
 
 ## Options

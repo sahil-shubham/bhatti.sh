@@ -13,80 +13,45 @@ production, this is the page I'd read.
 The order is roughly chronological with respect to when each problem
 hit me, not by importance.
 
-## The 1-second SYN retransmit
+## The 1-second SYN retransmit (and why it's gone)
 
-`bhatti create` on a Pi 5 with btrfs takes about 1.2 seconds. About
-**1 second of that** is a single TCP SYN retransmission timeout. I
-spent a long time before I understood why.
+On the early Firecracker-based builds, `bhatti create` had a mysterious
+floor: about **1 second** of every create was a single TCP SYN
+retransmission timeout. I spent a long time before I understood why, and
+the answer only makes sense once you know it was a TAP-networked,
+TCP-agent design.
 
-The investigation lives in
-[`docs/archive/INVESTIGATION-create-performance.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/INVESTIGATION-create-performance.md).
-Phase-instrumented every step of the create pipeline. Got this:
-
-```
-Phase                Time   What
-─────────────────    ─────  ────
-rootfs_copy           14ms  btrfs reflink clone
-lohar_inject          93ms  loop mount + cp + umount
-network               34ms  IP alloc + TAP + ARP flush
-config_drive          14ms  mke2fs -d
-fc_start (jailer)     21ms  chroot + FC process + socket
-fc_api + InstanceStart 31ms HTTP PUTs + boot API call
-                     ─────
-Host work total:     207ms
-
-TCP SYN wait:       1005ms  ← here
-AUTH + exec:          18ms  Agent responds
-                     ─────
-WaitReady total:    1023ms
-```
-
-The host-side work is 207 ms. The remaining ~1000 ms is the TCP
-SYN-retransmit timer.
-
-The `rootfs_copy` row is on btrfs with reflink — 14 ms is the
-metadata-only `BTRFS_IOC_CLONE` ioctl. On ext4 the same `cp
---reflink=auto` falls back to a real sparse copy and the row jumps
-to ~320 ms; the host-side total goes from 207 ms to ~500 ms. See
-[Storage](/docs/under-the-hood/storage/) for the filesystem story
-that sits underneath every "how fast is `bhatti create`?"
-conversation.
-
-What's happening: after `InstanceStart`, the host immediately starts
-polling TCP :1024 with `exec true` to detect when the agent is up.
-The agent isn't up yet — the kernel is still booting. The host
-sends a SYN. No response. Linux's default initial SYN RTO is 1
-second
+The mechanism: after the VM started, the host immediately polled the
+guest's agent port with `exec true` to detect readiness. The guest kernel
+was still booting, so the SYN got no answer. Linux's default initial SYN
+RTO is 1 second
 ([RFC 6298](https://www.rfc-editor.org/rfc/rfc6298),
-`net.ipv4.tcp_syn_retries`,
-`net.ipv4.tcp_synack_retries`). After 1 second, retransmit. By then,
-the agent is up; the second SYN succeeds.
+`net.ipv4.tcp_syn_retries`); after that timer expired the host
+retransmitted, and by then the agent was up. A whole second, burned
+waiting for a guest kernel to boot, visible in every benchmark. Two hacks
+kept it from being worse — a pre-populated permanent ARP entry so the
+first probe didn't also pay an ARP-resolution second, and a stale-ARP
+flush before IP reuse.
 
-Two parts of the fix that *do* exist in code:
+krucible deletes the entire phenomenon rather than tuning it:
 
-- **Pre-populated permanent ARP entry**
-  ([`pkg/engine/firecracker/create.go:386-395`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/create.go#L386-L395)).
-  Without this, the *first* probe is wasted on ARP resolution
-  (another 1-second penalty). With it, the SYN goes out immediately
-  with the right MAC. See
-  [The ARP trick](/docs/under-the-hood/networking/#the-arp-trick).
-- **Stale ARP flush before allocation**
-  ([`create.go:130-135`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/create.go#L130-L135)).
-  Without this, IP reuse within `gc_stale_time` (60 s) sends SYNs to
-  the dead VM's MAC, also losing seconds.
+- **The transport is vsock, not TCP-over-TAP.** The host reaches the
+  guest agent through libkrun's vsock bridge (it dials a host Unix socket
+  bridged to the guest's vsock port). There is no SYN, no three-way
+  handshake to a not-yet-listening port, and no ARP resolution to get
+  wrong — so no TAP device, no bridge, no permanent-ARP trick, and no
+  stale-entry flush.
+- **The lean external kernel boots to agent-ready in ~312 ms** on Apple
+  Silicon (HVF, measured — roughly 2× faster than libkrun's bundled
+  kernel), so the window the old design spent retransmitting through
+  barely exists.
 
-What's *not* done yet, that we know would help:
-
-- Delay the first WaitReady probe by ~200 ms after `InstanceStart`.
-  Skip the doomed first SYN.
-- Tune the initial SYN RTO via `ip route` on the bridge.
-- Use a faster probe (vsock on cold boot — except vsock has its own
-  problems; see below).
-
-I haven't shipped these because they're optimization for an already-
-acceptable wall-clock. But the existence of a 1-second timer waiting
-for a guest kernel to boot is a real, weird, unlovely thing — and you
-will see it in your benchmarks.
+The lesson that survived the rewrite: **a mysterious constant floor in a
+latency number is almost always a timer, not your code.** The 1-second
+SYN RTO was invisible in host-side instrumentation because the host work
+genuinely finished in ~200 ms — the extra second belonged to a kernel
+timer neither side controlled. Once you can *name* the timer, you can
+design it away.
 
 ## The rory incident
 
@@ -99,13 +64,14 @@ Three failures compounded into one bad outcome
 ([`docs/archive/PLAN-reliability.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/PLAN-reliability.md),
 [`PLAN-snapshot-reliability-fixes.md`](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/PLAN-snapshot-reliability-fixes.md)):
 
-- **Diff snapshot corruption.** `mem.snap` was a Diff — only dirty
-  pages — and the dirty page bitmap was incomplete. Firecracker
-  tracks dirty pages via KVM's bitmap, but certain virtio device
-  writes happen in Firecracker's userspace device-model code and
-  don't go through KVM. Those writes don't trigger the bitmap.
-  Restoring a Diff snapshot then loads pages from a stale base and
-  any in-flight virtio ring buffer state gets clobbered.
+- **Diff snapshot corruption.** The memory image was a *diff* — only the
+  pages the dirty-page bitmap said had changed — and that bitmap was
+  incomplete. KVM tracks the pages the guest CPU touches, but a userspace
+  VMM's device model writes guest memory *outside* KVM: a virtio device
+  servicing the guest writes straight into ring buffers and DMA regions,
+  and those writes never set a bit in KVM's bitmap. Restoring a diff
+  snapshot then loads those pages from a stale base, and any in-flight
+  virtio ring-buffer state gets clobbered.
 - **No snapshot verification** — we'd written a corrupt mem file and
   marked the snapshot as good without checking.
 - **Volume attachment metadata wasn't persisted on snapshot resume**
@@ -115,16 +81,17 @@ Three failures compounded into one bad outcome
 
 The fixes:
 
-- `track_dirty_pages: false` everywhere
-  ([`pkg/engine/firecracker/create.go:307-318`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/create.go#L307-L318)).
-  Every snapshot is now a Full snapshot. ~500 ms slower per snapshot
-  on NVMe; correct in every case. See
-  [Why all snapshots are Full](/docs/under-the-hood/thermal-states/#why-all-snapshots-are-full).
-- `verifySnapshotArtifacts` after every `/snapshot/create`. Wrong size,
-  bad path, corrupted JSON — error out before marking the snapshot good.
-- `vm.Volumes` populated on snapshot resume
-  ([`PLAN-snapshot-reliability-fixes.md` Bug N1](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/PLAN-snapshot-reliability-fixes.md)),
-  with reciprocal `volume_attachments` rows in SQLite.
+- **No diff snapshots, ever.** krucible only writes *full* snapshots —
+  there is no dirty-page / incremental path left to get wrong. A full
+  snapshot is a few hundred ms slower to write but correct in every case.
+  See [Why all snapshots are Full](/docs/under-the-hood/thermal-states/#why-all-snapshots-are-full).
+- **Verify the artifacts after every checkpoint.** Wrong size, bad path,
+  corrupted state — error out before marking the snapshot good, rather
+  than discovering it on restore.
+- **The device set travels with the snapshot.** A memory snapshot (or a
+  fork) reproduces every attached volume, not just RAM and the root
+  overlay — so a restored VM's disk view is always consistent with the
+  RAM it came back with.
 
 The audit also found 17 other bugs — race conditions, missing
 defer-close, type assertions that would panic on certain SQLite
@@ -150,9 +117,9 @@ accepted connections, `bhatti exec` worked.
 
 Then `bhatti stop` (snapshot to disk) and `bhatti start` (restore).
 
-The restore looked successful: FC's API returned ok, the guest kernel
-resumed, lohar's TCP listener was still bound to port 1024 according
-to `ss -tlnp` from inside the VM. The first `bhatti exec` after restore
+The restore looked successful: the restore returned ok, the guest kernel
+resumed, lohar's listener was still bound to port 1024 according to
+`ss -tlnp` from inside the VM. The first `bhatti exec` after restore
 would succeed. Every subsequent exec would hang forever.
 
 What I observed:
@@ -172,46 +139,54 @@ from. That's speculation, not diagnosis.
 
 What I know empirically:
 
-- Reproduced on Firecracker 1.14.0 and 1.15.1.
+- Reproduced across multiple VMM and guest-kernel versions.
 - Reproduced with `Restart=no` and `Restart=always`.
 - Lohar as PID 1 (no systemd) — never reproduced, in CI or production.
 
 So lohar stayed PID 1, and we built a [systemctl
 shim](/docs/under-the-hood/lohar-the-blacksmith/#the-systemctl-shim)
-to satisfy the package machinery. **If you've traced this further or
+to satisfy the package machinery. That decision carried straight into
+v2: krucible boots lohar as PID 1 from `/init.krun` (block-root boot),
+so the systemd-child hazard never had a chance to reappear. **If you've traced this further or
 think the diagnosis is wrong**, please
 [open an issue](https://github.com/sahil-shubham/bhatti/issues). The
 shim works, but real systemd would be less code to maintain.
 
-## Why TCP, not vsock, after restore
+## Making vsock survive snapshot/restore
 
-Firecracker's vsock implementation is supposed to be the canonical
-host↔guest communication channel. We started there. It works
-perfectly during normal operation. After snapshot/restore, it breaks.
+vsock is the natural host↔guest channel for an in-process VMM: libkrun
+exposes each guest vsock port as a host Unix socket, and the daemon dials
+it directly. It works perfectly during normal operation. The hazard is
+snapshot/restore — and it isn't in the transport, it's in the guest's Go
+runtime.
 
-What I see post-restore: vsock connections complete the host-side
-handshake (the `CONNECT <port>` reply succeeds) but never reach the
-guest's vsock listener. From the host, the connection looks
-"connected." From the guest, no `accept()` ever fires. Reads block.
-Writes are accepted by the kernel but the guest never sees them.
+What happens with a naive listener: after a cold restore, the guest's Go
+runtime can come back with its netpoller (`epoll`) registrations in a
+state it never recovers from. A goroutine blocked in `Accept()` on a
+runtime-registered vsock socket simply never gets scheduled again — the
+host connects, the kernel completes the accept, and the guest never wakes
+to it. (This is the same failure shape as the systemd story above: a
+resumed Go poller that wedges.)
 
-Tested with kernel 5.10, 6.1; Firecracker 1.6.0 through 1.14.0. The
-break is consistent and lives in the Firecracker/vsock layer, not
-in our code. As a public corroboration point, SlicerVM dropped
-their suspend/restore feature in v0.1.108 — apparently for the
-same upstream cause
-([archive notes on Firecracker vsock behavior post-restore](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/slicer-learnings.md)).
+The fix lives in lohar, not the transport. lohar's vsock listener is a
+plain blocking socket with a one-second `SO_RCVTIMEO`, so `accept4`
+returns `EAGAIN` on a *kernel* timer rather than parking on the Go
+netpoller. When an accept that should have returned in milliseconds
+instead takes seconds, lohar reads that as "we were just restored,"
+tears the listener down, and recreates it fresh
+([`cmd/lohar/net.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/net.go)).
+A kernel-level timer keeps firing even when the Go runtime is stalled, so
+the guest always gets a chance to notice the resume and rebuild a working
+listener.
 
-The fix: use TCP over the TAP network instead. Virtio-net survives
-snapshot/restore cleanly. Lohar listens on both vsock and TCP at
-ports 1024/1025, and the host always uses TCP after restore
-([`pkg/engine/firecracker/lifecycle.go:419`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L419)).
-TCP adds ~0.1 ms of latency over vsock; negligible.
-
-In practice we use TCP for cold boot too, because the simplification
-of "agent client always uses TCP, regardless of state" is worth more
-than the trivial vsock-faster-on-cold-boot saving. The vsock listener
-in lohar is still set up but the host never dials it.
+The lesson: **the thing that breaks across snapshot/restore is rarely the
+device — it's the userspace runtime state layered on top of it.** An
+earlier design reached for a different transport to dodge the problem; the
+durable fix was to stop trusting the runtime's poller across a resume and
+lean on a timer the kernel owns. As a public corroboration point that
+suspend/restore is genuinely hard here, SlicerVM dropped their
+suspend/restore feature in v0.1.108
+([archive notes](https://github.com/sahil-shubham/bhatti/blob/main/docs/archive/slicer-learnings.md)).
 
 ## The Cloudflare Tunnel disconnect
 
@@ -320,33 +295,31 @@ Graviton, an Alpine container, an Ubuntu host, anything.
 
 The 3 MB and 10% are bought, gladly, for the build simplicity.
 
-## Per-user bridges (replacing a single shared bridge)
+## Per-owner network isolation (no shared bridge)
 
-The first version of bhatti had one Linux bridge — `brbhatti0` — and
-all VMs across all users shared it. Subnet `192.168.137.0/24`. One
-masquerade rule. Simple to operate. *Insecure* once you actually
-have multiple tenants, because at L2, alice's VM could ARP-scan the
-bridge and reach bob's VM directly. Iptables FORWARD rules between
-guests were the only barrier, and a misconfigured rule meant
+The first version of bhatti had one Linux bridge — `brbhatti0` — and all
+VMs across all users shared it on a single subnet. Simple to operate.
+*Insecure* once you actually have multiple tenants: at L2, alice's VM
+could ARP-scan the bridge and reach bob's VM directly, and iptables
+FORWARD rules were the only barrier. A misconfigured rule meant
 cross-tenant traffic.
 
-Per-user bridges
-([`pkg/engine/firecracker/network.go:23-52`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/network.go#L23-L52))
-push the isolation down to the kernel's bridge forwarding. alice's
-VMs are on `brbhatti-1`, bob's on `brbhatti-2`. The kernel doesn't
-forward frames between them. Even if alice's VM is compromised at the
-kernel level, it can only see alice's other VMs.
+v1 fixed the L2 leak with a bridge per user. v2 removes the L2 fabric
+entirely. Under krucible there are **no host TAP devices, no bridges, and
+no iptables rules**. Each guest's `eth0` is a virtio-net link over a Unix
+socket to a **per-owner `bhatti-netd` gateway** — a userspace
+[gVisor](https://gvisor.dev/) netstack that is the guest's router, DNS,
+and egress policer. One netd per owner: alice's VMs connect to alice's
+gateway, bob's to bob's, and there is no shared switch for either to
+scan. Same-owner siblings reach each other *through* their gateway (an
+L3-routed proxy), not over a shared L2 segment. See
+[Networking](/docs/under-the-hood/networking/).
 
-The migration: `cleanupOldBridge()` runs once on engine startup,
-removes `brbhatti0` and the legacy 192.168.137 NAT rule, and
-existing sandboxes get reattached to per-user bridges on their next
-start. We made the migration silent because the upgrade path needed
-to "just work" for existing single-user deployments.
-
-The lesson: **start with the security model you'll need**, not the
-simplest one that works for now. A bridge-per-tenant is one or two
-extra lines of bridge management; retrofitting tenant isolation is
-a release-cycle of careful migration code.
+The lesson, unchanged from v1: **start with the security model you'll
+need**, not the simplest one that works for now. v1 learned it the hard
+way — a single shared bridge, then a scramble to per-user bridges; v2
+bakes per-owner isolation into the transport itself, so there is no
+shared fabric left to misconfigure.
 
 ## Server-side file truncation
 
@@ -484,6 +457,94 @@ every kind of daemon, including the ones that fork during startup. See
 [How services are spawned](/docs/under-the-hood/lohar-the-blacksmith/#how-services-are-spawned)
 for the mechanism.
 
+## Owning the VMM (krucible)
+
+bhatti's whole product is thermal states: sandboxes that pause, snapshot
+to disk, restore in a fraction of a second, and fork into instant copies.
+Those are VMM-level capabilities — pause/resume, checkpoint/restore, and
+memory-clone fork — and they are not on the upstream roadmap of the
+in-process VMM library we build on
+([libkrun](https://github.com/containers/libkrun)). You can't bolt them on
+from the outside; they touch how the VMM saves and restores vCPU state,
+memory, and device state.
+
+So we forked libkrun into **krucible** and added exactly those pieces: a
+control socket carrying
+`PAUSE`/`RESUME`/`STATUS`/`CHECKPOINT`/`RESTORE`/`FORK`, full-VM snapshot
+and restore, and a block-root boot path that lets lohar run as PID 1 from
+`/init.krun`. The bhatti daemon stays pure Go and never links libkrun — it
+spawns one `bhatti-vmm` helper per sandbox (the helper *becomes* the VM,
+since libkrun's entry call blocks for the VM's life) and drives it
+out-of-band over that control socket.
+
+The lesson: **if a capability is the product, own the layer it lives in.**
+Waiting for upstream to grow pause/resume/fork would have meant not
+shipping the product. A fork is a maintenance cost — we rebase onto
+upstream libkrun on our own cadence — but it's the only way to control the
+thing the product is made of.
+
+## Why krucible over Firecracker
+
+v1 ran on Firecracker. krucible replaces it for four reasons, each of
+which was awkward or impossible on the old engine:
+
+- **One engine on the laptop and the server.** krucible runs on **KVM**
+  on Linux and **HVF (Hypervisor.framework)** on Apple Silicon, so the
+  same sandbox model boots on a developer's Mac and on a Linux host.
+  Firecracker is Linux/KVM only.
+- **Live snapshot, pause/resume, and fork as first-class verbs**, driven
+  over the control socket — the thermal-state machinery the product is
+  built on, owned end to end rather than pieced together around an
+  external process.
+- **Host-owned networking.** The guest link is a virtio-net device to a
+  per-owner `bhatti-netd` gateway; there are no TAP devices, bridges, or
+  iptables rules on the host, and no per-user subnet to allocate. The
+  network policy lives in a userspace gVisor netstack we control.
+- **A zero-secret-on-disk posture.** Per-sandbox env, secrets, and the
+  agent token ride a small config drive that lohar mounts read-only,
+  applies, then unmounts and removes — the secrets don't linger on a
+  guest filesystem after boot.
+
+Firecracker is a genuinely excellent VMM; the switch isn't a knock on it.
+It's that bhatti's requirements — cross-platform, snapshot/fork-native,
+host-owned networking — line up with a VMM we can extend, not one we drive
+from the outside.
+
+## qcow2 copy-on-write (dropping the btrfs dependency)
+
+v1's fast `create` leaned on the *host* filesystem: a btrfs (or
+xfs-reflink) volume so a new sandbox's rootfs was a metadata-only reflink
+clone of a base image. It was fast, but it made the filesystem a
+deployment prerequisite — and on plain ext4 the same clone fell back to a
+full copy and `create` got noticeably slower.
+
+v2 moves copy-on-write up into the **disk image format**: each sandbox
+gets a thin **qcow2 overlay** over a shared read-only base, and the CoW is
+the image format's job, not the filesystem's. Instant create and
+base-sharing now work identically on **ext4, xfs, btrfs, and APFS**, with
+~0.5% overhead on agent workloads. There is nothing to pre-provision.
+
+The lesson: **push a requirement down a layer until it stops being the
+operator's problem.** "You must run bhatti on btrfs" is a real barrier;
+"bhatti stores qcow2 files on whatever filesystem you already have" isn't
+a barrier at all.
+
+## No jailer yet (Track J)
+
+On Firecracker, the VMM process ran under a *jailer* — a chroot, a
+dropped-privilege uid, cgroups, and a seccomp filter around the VM
+process — so a hypothetical VM escape landed in an empty jail rather than
+on the host. krucible does not have an equivalent yet: the daemon spawns
+`bhatti-vmm` directly (on Linux it runs as root because it needs
+`/dev/kvm`; on macOS HVF needs no root, but the helper is unsandboxed).
+
+I'd rather be honest about this than paper over it. Jailing the helper for
+genuinely *hostile* multi-tenant use on Linux is planned work — internally
+"Track J" — not something that ships today. For single-user and dev use
+(the common case, and the whole story on a Mac laptop) it isn't load
+bearing; for hostile multi-tenant on shared Linux hardware, it's a gap you
+should know about.
+
 ## What I'd do differently
 
 Things I'd revisit if I were starting bhatti from scratch today:
@@ -498,20 +559,21 @@ Things I'd revisit if I were starting bhatti from scratch today:
   service-supervisor code would be battle-tested rather than home-
   rolled.
 
-- **Snapshot verification from day one.** I shipped Diff snapshots
-  without verification, and the rory incident is what it cost. The
-  verification logic is ~50 lines. Not having it from the start was
-  a real mistake.
+- **Snapshot verification from day one.** I shipped snapshots without
+  verifying the artifacts, and the rory incident is what it cost. The
+  verification logic is ~50 lines. Not having it from the start was a
+  real mistake — and it's why v2 only ever writes full snapshots and
+  checks them before marking them good.
 
 - **Per-source-IP rate limiting on the public proxy from day one.**
   Per-destination was the wrong default; "match what nginx does" is
   the boring-and-correct answer.
 
-- **TLS for the agent protocol.** Right now the agent protocol uses
-  a 16-byte hex token over plaintext TCP. The TCP runs on a private
-  bridge that VMs from other users can't reach (per-user bridges
-  enforce this), and the host always initiates so there's no
-  certificate-pinning equivalent on the guest side. Still, TLS would
+- **TLS for the agent protocol.** The agent protocol authenticates with
+  a 16-byte hex token, framed over vsock — the host dials the guest's
+  socket through libkrun's bridge, so there's no network path another
+  guest could reach it on, and the host always initiates (no
+  certificate-pinning equivalent on the guest side). Still, TLS would
   give us defense in depth. Haven't done it yet because the threat
   model doesn't demand it on a single-host deployment, but it should
   be on the table for any real multi-host setup.
@@ -521,7 +583,7 @@ Things I'd revisit if I were starting bhatti from scratch today:
 If you want to read more like this, the full archive is in
 [`docs/archive/`](https://github.com/sahil-shubham/bhatti/tree/main/docs/archive)
 in the repo. Plans, post-mortems, write-ups on the
-Linux / Firecracker / cloud-init behaviors that drove our design
+Linux / KVM / cloud-init behaviors that drove our design
 choices (with cross-references to publicly documented incidents at
 other orchestrators in the space — SlicerVM, fly.io's Sprites —
 where their reports matched ours), and the migrations that got us
@@ -533,7 +595,7 @@ to v1.7.
   inside every VM
 - [Thermal states](/docs/under-the-hood/thermal-states/) — pause /
   snapshot / restore in detail
-- [Networking](/docs/under-the-hood/networking/) — bridges, the ARP
-  trick, the kernel `ip=` solve
+- [Networking](/docs/under-the-hood/networking/) — the per-owner
+  bhatti-netd gateway, egress policy, and host↔guest forwarding
 - [Wire protocol](/docs/under-the-hood/wire-protocol/) — frames, ports,
   atomic writes

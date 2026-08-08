@@ -23,13 +23,13 @@ Downloads `https://bhatti.sh/install` and runs it. The installer auto-detects wh
 
 **On a CLI-only machine:** updates the `bhatti` binary at `/usr/local/bin/bhatti`. Doesn't need root unless `/usr/local/bin` isn't writable by the user.
 
-**On a server:** updates everything — CLI, Firecracker, lohar, kernel, and any installed rootfs tier images. Only changed components are re-downloaded; unchanged tiers and kernels are skipped.
+**On a server:** updates everything — the CLI plus the runtime bundle (`bhatti-vmm`, `bhatti-netd`, `libkrun`, the lean kernel) and any installed rootfs tier images. Only changed components are re-downloaded; unchanged tiers and kernels are skipped.
 
 **`--cli-only`** forces the binary-only update path even on a server. Useful when you want to test a CLI fix without touching kernel/rootfs.
 
 **`--tiers`** takes a comma-separated list (or `all`) of additional rootfs tiers to install (`browser`, `docker`, `computer`). The default install only ships `minimal`; this is how you add more without re-running the full install command.
 
-Server updates require root (Firecracker and `/var/lib/bhatti` are root-owned). The command refuses up front if it detects a server install but the user isn't root, rather than partly-completing then failing inside the install script.
+Server updates require root (`/var/lib/bhatti` and the runtime bundle are root-owned). The command refuses up front if it detects a server install but the user isn't root, rather than partly-completing then failing inside the install script.
 
 ## Examples
 

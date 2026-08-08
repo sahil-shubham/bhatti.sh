@@ -19,7 +19,7 @@ List all users on the server.
 
 ## Description
 
-Lists all users with ID, name, current sandbox count vs. limit, per-sandbox CPU and memory caps, and assigned subnet index. Reads from the local SQLite database.
+Lists all users with ID, name, current sandbox count vs. limit, per-sandbox CPU and memory caps, and the subnet index. Reads from the local SQLite database.
 
 ## Examples
 
@@ -34,7 +34,7 @@ usr_e5f6g7h8 bob                  0/5       4      4096   3
 usr_i9j0k1l2 worker-bot           5/5       2      2048   4
 ```
 
-The `SANDBOXES` column is `current/limit` — `5/5` means at-cap.
+The `SANDBOXES` column is `current/limit` — `5/5` means at-cap. The `SUBNET` column is a vestigial per-user index carried over from v1 — in v2 it no longer maps to a bridge network (isolation is API scoping + the per-owner `bhatti-netd` gateway).
 
 ## Options
 

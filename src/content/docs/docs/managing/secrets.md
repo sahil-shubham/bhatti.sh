@@ -25,7 +25,7 @@ When a sandbox is created with `--secret API_KEY`:
 
 1. The server fetches the encrypted blob from the secrets table for that user.
 2. It decrypts under the age key.
-3. The plaintext is written into the sandbox's config drive (`config.ext4`) as part of the env-var bundle.
+3. The plaintext is written into the sandbox's config drive as part of the env-var bundle.
 4. lohar reads the config drive at boot and exports `API_KEY=<plaintext>` to every command run inside the sandbox.
 
 The config drive is unmounted after boot so the value isn't readable from the running rootfs without lohar's help.
@@ -35,15 +35,16 @@ The config drive is unmounted after boot so the value isn't readable from the ru
 Nothing secret-related. Decryption happens exactly once, at sandbox
 *create*, when the daemon reads the ciphertext from SQLite, decrypts
 it with the age key on disk, and writes the plaintext into the
-config drive (`config.ext4`). From that moment on, the secret lives
-as bytes in guest RAM and is captured into `mem.snap` on snapshot.
+config drive. From that moment on, the secret lives
+as bytes in guest RAM and is captured into the memory image
+(`memory.img`) on snapshot.
 
 When a [cold sandbox wakes](/docs/under-the-hood/thermal-states/#cold--hot):
 
 - The server does **not** re-read from SQLite.
 - It does **not** load the age key.
 - It does **not** rewrite the config drive.
-- It loads `mem.snap` into a fresh Firecracker process and resumes.
+- It restores the memory image into a fresh krucible VM and resumes.
   The env vars are already in the guest's process memory.
 
 The age key (`<data_dir>/age.key`) is only loaded on an explicit
@@ -53,20 +54,20 @@ memory.
 
 This matters for latency: a cold wake doesn't pay any
 secret-reconstruction cost. The 360 ms p50 number on the homepage
-is dominated by the `mem.snap` disk read, not by anything
+is dominated by the memory-image disk read, not by anything
 secret-handling — see [Storage → Cold wake and the page
 cache](/docs/under-the-hood/storage/#cold-wake-and-the-page-cache).
 
 ### Threat model
 
-- **Stolen `bhatti.db`**: safe (ciphertext only, no key).
+- **Stolen `state.db`**: safe (ciphertext only, no key).
 - **Cross-tenant access**: safe (per-user scoping + auth).
-- **Stolen `bhatti.db` + `age.key` together**: not safe; both files
+- **Stolen `state.db` + `age.key` together**: not safe; both files
   live in `<data_dir>` and an attacker with filesystem access has
   everything.
 - **Host root compromise**: not safe.
-- **`mem.snap` exfiltration**: not safe; secrets are env vars in
-  guest RAM and `mem.snap` is unencrypted on disk.
+- **Memory-image exfiltration**: not safe; secrets are env vars in
+  guest RAM and the memory image (`memory.img`) is unencrypted on disk.
 
 The host root is the trust boundary, same as Vault-on-a-box. If you
 need to weaken that — wrap `age.key` in KMS/HSM. We do not

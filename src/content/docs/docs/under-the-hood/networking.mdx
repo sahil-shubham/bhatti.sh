@@ -1,313 +1,208 @@
 ---
-title: "Networking: bridges, TAPs, and the ARP trick"
-description: "Per-user bridges in 10.0.x.0/24, the six iptables rules that protect the host, the kernel ip= parameter that brings the network up before init, and a permanent ARP entry that saves a second of boot time."
+title: "Networking: bhatti-netd, gVisor, and the vsock tunnel"
+description: "A per-owner userspace gVisor gateway that polices egress and isolates the guest from the host — no host TAP, bridge, or iptables — how a guest's packets get in and out, and the ways to reach a service inside a sandbox from outside."
 ---
 
-Every VM gets its own network interface, its own IP, and internet
-access. Users are isolated at L2: VMs belonging to different users live
-on different bridges and can't see each other's traffic. The host
-itself is unreachable from inside any VM unless the host opened the
-connection first. None of this requires per-VM iptables management;
-it's six rules total, regardless of how many users or VMs you have.
+Every VM gets internet access, isolation from the host, and
+reachability to its owner's other sandboxes — and none of it touches
+the host's own network stack. There are no TAP devices, no bridges,
+no iptables rules. Each owner's sandboxes hang off a single userspace
+process, **`bhatti-netd`**, that *is* their network: a gVisor netstack
+running as an ordinary host process, on by default.
 
-This page is about the host side of networking. The guest side
-(`eth0`, DNS, kernel `ip=`) is short and lives at the end.
+This page is about how that gateway works, how a guest's packets get
+in and out, and the paths for reaching a service inside a sandbox
+from outside.
 
 ## Design decisions on this page
 
-1. **Per-user bridges, not a single shared one.** Earlier versions of
-   bhatti used a single `brbhatti0` and all VMs lived on the same L2
-   segment. Tenants could ARP-scan and reach each other. The current
-   design gives each user their own `brbhatti-N` and `/24`. See
-   [Per-user bridges](#per-user-bridges).
-2. **Six global iptables rules cover every VM.** Cross-bridge
-   isolation, NAT, return traffic, and a `DROP` rule that prevents
-   guest-initiated connections to the host on `INPUT`. No per-VM
-   rules, regardless of how many VMs exist. See
-   [The six iptables rules](#the-six-iptables-rules).
-3. **Kernel `ip=` configures `eth0` before init runs.** Solves the
-   chicken-and-egg of "the agent needs the network before the host
-   can reach the agent." See
-   [Kernel `ip=`](#kernel-ip).
-4. **Pre-populated permanent ARP entry on create.** Skips the first
-   ARP retransmit (Linux default `retrans_time_ms = 1000`), saving a
-   full second of boot time. See [The ARP trick](#the-arp-trick).
-5. **TAP devices survive `Stop()`, are destroyed only on `Destroy()`.**
-   The Firecracker snapshot contains virtio-net state that references
-   the TAP device. Destroying it would break resume. See
-   [TAP lifecycle](#tap-lifecycle).
+1. **A userspace gateway per owner, not host bridges.** Each owner's
+   VMs share one `bhatti-netd`; different owners get different gateways
+   and never share a network. See [A gateway per owner](#a-gateway-per-owner).
+2. **The guest link is virtio-net over a unix socket, not a TAP.**
+   libkrun connects, netd listens; the guest sees a normal `eth0`.
+   See [The guest link](#the-guest-link).
+3. **Egress is policed and the host is unreachable by construction.**
+   Every guest flow is terminated at the gateway and re-originated
+   through a vetting dialer. See
+   [Egress policy and host isolation](#egress-policy-and-host-isolation).
+4. **Same-owner siblings reach each other through the gateway, never
+   directly.** An L3-routed proxy inside netd carries the sibling leg.
+   See [Sibling reachability](#sibling-reachability).
+5. **Host↔guest ports ride the vsock tunnel.** `bhatti forward` and
+   the proxies never expose the guest on a host-routable address. See
+   [Reaching services inside sandboxes](#reaching-services-inside-sandboxes).
+6. **The legacy TSI backend is off by default.** It shares the host
+   netstack — simpler, but the guest can reach host loopback. See
+   [The legacy TSI backend](#the-legacy-tsi-backend).
 
-## Per-user bridges
+## A gateway per owner
 
-When the second user creates their first sandbox, bhatti creates them
-a fresh Linux bridge and a `/24` subnet. The third user gets another.
-Each user is alone on their own L2 segment.
+When a user creates their first sandbox, bhatti spawns them a
+`bhatti-netd` — one gVisor userspace netstack that serves all of that
+owner's sandboxes. The second user gets their own. Each owner is alone
+on their own network; there's no shared segment to ARP-scan.
 
-The mapping
-([`pkg/engine/firecracker/network.go:23-52`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/network.go#L23-L52)):
+The addressing
+([`pkg/engine/krucible/engine.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/krucible/engine.go)):
+each owner's gateway lives on `100.64.<idx>.0/24` — RFC-6598
+carrier-grade-NAT space, used here for per-owner vnets. The gateway is
+`.1`; guests are `.2`, `.3`, … in creation order.
 
-| User index | Bridge | Subnet | Gateway |
+| Owner index | Gateway | Guest 1 | Guest 2 |
 |---|---|---|---|
-| 1 | `brbhatti-1` | `10.0.1.0/24` | `10.0.1.1` |
-| 2 | `brbhatti-2` | `10.0.2.0/24` | `10.0.2.1` |
+| 0 | `100.64.0.1` | `100.64.0.2` | `100.64.0.3` |
+| 1 | `100.64.1.1` | `100.64.1.2` | `100.64.1.3` |
 | ... | ... | ... | ... |
-| 254 | `brbhatti-254` | `10.0.254.0/24` | `10.0.254.1` |
-| 255 | `brbhatti-255` | `10.1.0.0/24` | `10.1.0.1` |
-| 65 024 | `brbhatti-65024` | `10.255.254.0/24` | ... |
 
-The `subnetFromIndex` function in network.go does the math: 1-based
-index, `10.<hi>.<lo>.0/24`, skipping `10.0.0.0/24` to avoid the
-`hi=0,lo=0` ambiguity. Each user can have up to 253 concurrent VMs
-(`.2` through `.254` — `.0` is the network, `.1` is the gateway,
-`.255` is broadcast). The total addressable users on a single host is
-65,024. If you ever need more than that on one box, you've outgrown
-bhatti and probably need a real cluster.
+Grouping is by owner (the sandbox's `UserID`): same owner ⇒ same netd
+⇒ siblings reach each other. A sandbox with no owner gets its own
+isolated netd keyed by sandbox id, so the single-sandbox case is just
+N = 1.
 
-A bridge is created on demand when the first sandbox for a user is
-created
-([`ensureUserBridge`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/network.go#L135-L143)).
-When a user destroys their last sandbox, the bridge is removed
-([`removeUserNetworkIfEmpty` in `lifecycle.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go)).
+netd is spawned **detached**, so it survives a daemon restart, and its
+state (socket path, next-guest index, pid) is persisted in a
+`netd.json` next to its socket. On restart the daemon **re-adopts** the
+running gateway by pid instead of respawning onto a socket it still
+holds; it's reference-counted, so the owner's last `destroy` tears it
+down
+([`recovery.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/krucible/recovery.go)).
 
-### Why per-user, not single-shared
+The Firecracker-era per-user `subnet` index still exists in the store
+as `subnetIdx`, and it picks the `100.64.<idx>` octet — but there are
+no per-user bridges behind it anymore. It's a vnet number, not a Linux
+bridge.
 
-Earlier versions of bhatti used a single bridge `brbhatti0` on
-`192.168.137.0/24`. All VMs across all users shared it. This was
-simpler to operate but broke the multi-tenancy model — at L2, alice's
-VMs could ARP-scan the bridge and reach bob's VMs directly.
-Application-level isolation only.
+## The guest link
 
-Per-user bridges solve this at the network layer: alice's VMs are on
-`brbhatti-1`, bob's on `brbhatti-2`, and the kernel's bridge
-forwarding doesn't relay frames between them. Even if alice's VM is
-compromised at the kernel level, it can only see alice's other VMs.
+There are no TAP devices. The guest's NIC is a **virtio-net** device
+wired to a **unix stream socket** (`krun_add_net_unixstream`). netd
+*listens* on that socket; libkrun's virtio-net backend *connects* to it
+as the VM boots
+([`cmd/bhatti-netd/main.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/bhatti-netd/main.go)).
+Each accepted connection becomes a switch port on the gateway; the
+frames on it are the raw ethernet the guest emits, carried over the
+socket by `pkg/gateway.FrameConn`.
 
-If you're upgrading from an old install, the engine startup runs
-[`cleanupOldBridge()`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/network.go#L204-L238)
-once. It removes `brbhatti0`, the legacy 192.168.137 NAT rule, and
-the per-bridge FORWARD rules from the old design. Existing sandboxes
-get reattached to per-user bridges on their next start.
+From the guest's side it's an ordinary `eth0`. lohar brings it up from
+the per-sandbox config drive via **rtnetlink** directly — no `ip`
+binary, no DHCP, no kernel IP autoconfig (our lean kernels build
+without `CONFIG_IP_PNP`)
+([`cmd/lohar/netlink.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/netlink.go)).
+It assigns the guest its `100.64.<idx>.<n>/24`, adds an on-link route
+to the gateway `.1`, and a default route via `.1`. So the guest sends
+*everything* — internet and siblings alike — to the gateway.
 
-## TAP devices
+Each guest gets a deterministic locally-administered MAC
+(`52:54:00:00:00:<n>`); the gateway's is `52:54:00:00:00:01`. netd
+learns each guest's MAC → port as frames arrive, so it can demux
+stack-originated frames back to the right guest and flood only genuine
+broadcasts
+([`cmd/bhatti-netd/netstack.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/bhatti-netd/netstack.go)).
 
-Each VM gets its own TAP device on its user's bridge. The naming
-pattern is `tap` plus the first 8 characters of the sandbox ID
-([`pkg/engine/firecracker/network.go:240-253`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/network.go#L240-L253)):
+### The offloaded-checksum gotcha
 
-```go
-tapName = "tap" + sandboxID[:8]
-ip tuntap add <tap> mode tap
-ip link set <tap> master <bridge>
-ip link set <tap> up
-```
+Guests offload their TX checksums (partial / pseudo-header only), and
+libkrun strips the `virtio_net_hdr` flag that would tell us so — so the
+checksums that reach netd on the wire aren't final. If gVisor verified
+them it would drop every guest packet and egress would silently time
+out.
 
-Firecracker binds the VM's virtio-net device to this TAP. From the
-guest's perspective, it's a regular ethernet interface (eth0); from
-the host's perspective, it's a TAP attached to a bridge.
+We trust frames arriving over the local vsock link, so the gateway
+advertises `CapabilityRXChecksumOffload`: gVisor marks received packets
+checksum-validated and skips verification. We deliberately do *not*
+advertise TX offload — the stack computes real checksums on the frames
+it sends *to* guests (including a re-originated sibling leg), so there
+are no manual fixups. There's a regression test that fires a SYN with a
+deliberately-wrong checksum and asserts it still reaches the forwarder
+([`delivery_test.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/bhatti-netd/delivery_test.go)).
+This is the kind of thing that's invisible when it works and takes a
+day to find when it doesn't.
 
-### TAP lifecycle
+## Egress policy and host isolation
 
-TAPs are created in `Create()` and destroyed in `Destroy()`. They are
-**not** destroyed on `Stop()` (snapshot to disk). The Firecracker
-snapshot contains virtio-net state that references the TAP by name.
-If we delete and recreate it, the resumed guest's network stack ends
-up referencing a TAP that doesn't exist anymore, breaking outbound
-traffic.
+netd doesn't route packets; it **terminates** every guest TCP flow at a
+gVisor TCP forwarder and **re-originates** it
+([`cmd/bhatti-netd/forward.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/bhatti-netd/forward.go)).
+For an internet destination, the new leg is dialed through a vetting
+dialer — the egress guard (`pkg/gateway`) — which classifies the
+destination:
 
-So TAPs survive across stop/start cycles. Across a daemon restart,
-orphan TAPs (created by a previous run that crashed before tearing
-them down) are cleaned up at engine startup
-([`network.go:286-310`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/network.go#L286-L310))
-— list all `tun`-type devices, delete any `tap*` not in the known
-set.
+- **Public internet** — allowed. This is the default posture
+  (`PosturePublic`).
+- **Private ranges** (RFC-1918, ULA, CGNAT) — denied unless an explicit
+  allow-CIDR opts them back in.
+- **Loopback, link-local, the host itself, multicast, and cloud
+  metadata** (`169.254.169.254`) — never allowable, including the
+  IPv4-mapped and NAT64-embedded spellings of those addresses that a
+  naive check would miss.
 
-### MAC addresses
+A denied or unreachable destination gets a clean RST back to the guest
+rather than a hang (the forwarder dials first, then completes). And
+because the guest has its *own* loopback inside the VM and its only
+route out is the gateway, there is simply no path from the guest to the
+host's bhatti API, SSH, or anything else on the host — the isolation
+the old iptables `INPUT` rules used to buy is now a property of the
+topology. The integration suite asserts both halves: a guest dial to an
+RFC-1918 address is refused, and public egress works end to end
+([`net_test.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/krucible/net_test.go)).
 
-Each VM gets a random locally-administered unicast MAC
-([`helpers.go:268-274`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/helpers.go#L268-L274)):
+This is a feature you don't configure. It's true the moment the gateway
+starts, for one sandbox or ten thousand. Because every flow — egress
+and sibling alike — passes through this one policed, observable
+chokepoint, it's also the natural home for per-sandbox egress policy
+and L7 [secret substitution](/docs/managing/secrets/).
 
-```go
-b := make([]byte, 6)
-rand.Read(b)
-b[0] = (b[0] & 0xfe) | 0x02  // locally administered, unicast
-```
+## Sibling reachability
 
-Two bit ops on the first byte:
+Same-owner sandboxes can reach each other — an agent sandbox can `curl`
+a worker at `100.64.<idx>.3:<port>`, or by name. But they never talk
+directly. When the forwarder sees a destination inside the owner's own
+subnet, it dials that sibling *through the gVisor stack itself*, which
+routes the new leg out to the target guest's link
+([`forward.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/bhatti-netd/forward.go)).
 
-- `& 0xfe` — clears the lowest bit, which would mean "multicast". MACs
-  starting with an odd byte are multicast addresses; we don't want
-  that.
-- `| 0x02` — sets the second bit, which marks the address as locally
-  administered. The IEEE guarantees that no real hardware vendor will
-  assign a MAC with this bit set, so we can't collide with real
-  hardware on the same LAN.
+So the sibling leg passes through the same chokepoint as egress; guests
+can't reach each other behind netd's back, checksums are native on the
+re-originated leg, and it's all observable. A sandbox belonging to a
+*different* owner is on a different netd entirely and has no route to
+it — cross-owner traffic never shares a network (the sibling test
+asserts both the reachable and the isolated direction).
 
-The remaining 46 random bits make collisions astronomically unlikely
-even within bhatti. Not registered with anyone, but it doesn't need to
-be — these MACs only need to be unique within the bridge.
-
-## The six iptables rules
-
-That's the entire isolation model on the host side. Inserted at the top
-of each chain so they take priority over any UFW or k8s rules
-([`network.go:147-200`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/network.go#L147-L200)):
-
-```
-# 1. Cross-bridge isolation: alice's VMs cannot reach bob's VMs.
-iptables -I FORWARD 1 -s 10.0.0.0/8 -d 10.0.0.0/8 -j DROP
-
-# 2. VM → internet
-iptables -I FORWARD 1 -s 10.0.0.0/8 ! -d 10.0.0.0/8 -j ACCEPT
-
-# 3. Return traffic from internet → VM
-iptables -I FORWARD 1 -d 10.0.0.0/8 -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-# 4. Allow agent TCP responses to reach the host (host initiated, so
-#    the SYN-ACK enters INPUT with src 10.0.0.0/8)
-iptables -I INPUT 1 -s 10.0.0.0/8 -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-# 5. Block VM-initiated connections to the host (API, SSH, everything).
-#    Only NEW connections are dropped — established ones (from rule 4) survive.
-iptables -I INPUT 1 -s 10.0.0.0/8 -m state --state NEW -j DROP
-
-# 6. NAT for outbound
-iptables -t nat -I POSTROUTING 1 -s 10.0.0.0/8 -o <default> -j MASQUERADE
-```
-
-Rule 1 enforces tenant isolation. Rule 5 enforces guest-host isolation.
-The combination: a VM can reach the internet, can reach its own user's
-other VMs, and cannot reach anything else, including the host's bhatti
-API or SSH.
-
-This is a feature you don't configure. It's true the moment the
-engine starts. The same six rules cover one user, ten users, ten
-thousand users.
-
-The default outbound interface is auto-detected from
-`ip route show default`. If you want to bind to a specific interface
-on a multi-homed host, set it in your config.
-
-### Rule order matters
-
-Rule 4 must come before rule 5. Both match `INPUT` traffic from
-`10.0.0.0/8`; rule 4 matches established connections (the SYN-ACK
-from a VM responding to a host-initiated SYN), rule 5 matches new
-connections (a VM trying to reach the host). If they were in the
-wrong order, rule 5 would kill all agent connections. The code
-inserts rules in *reverse* order with `-I … 1` so the final chain
-order is correct.
-
-## The ARP trick
-
-If you read the create code carefully you'll see two `ip neigh`
-commands you might not expect. Both save a second of boot time;
-together they explain why bhatti's first SYN to the agent doesn't
-sit in retransmit purgatory.
-
-### Pre-populating the cache
-
-[`pkg/engine/firecracker/create.go:386-395`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/create.go#L386-L395):
-
-```go
-// Pre-populate ARP with the guest's MAC so the first TCP SYN is sent
-// immediately without waiting for ARP resolution.
-exec.Command("ip", "neigh", "replace", guestIP, "lladdr", mac,
-    "dev", userNet.BridgeName, "nud", "permanent").Run()
-```
-
-When the host first tries to dial the agent at `10.0.1.2:1024`, the
-host kernel doesn't know the MAC address that goes with that IP. So
-it sends an ARP request: "who has 10.0.1.2?" The guest can't answer
-yet — the kernel's still booting, the agent hasn't started, eth0 is
-up but no one is listening. Linux's ARP retransmit timer
-(`retrans_time_ms = 1000ms`) adds a full second before the next
-probe. So our `WaitReady` polling spends a second of every poll
-waiting on ARP alone.
-
-We already know the MAC, because we generated it in `generateMAC()`.
-So we pre-populate the host's ARP cache with `nud permanent` — a
-permanent neighbor entry that won't be flushed by the kernel's normal
-aging. The first SYN goes out the moment the agent is listening; no
-ARP round-trip needed.
-
-On `Destroy()` we delete the entry
-([`lifecycle.go:455-460`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/lifecycle.go#L455-L460)).
-Without this cleanup, entries accumulate on the bridge until the
-bridge itself is destroyed.
-
-### Flushing stale entries on create
-
-[`pkg/engine/firecracker/create.go:130-135`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/create.go#L130-L135):
-
-```go
-// Flush stale ARP entry for this IP. When a sandbox is destroyed and
-// a new one reuses the same IP, the host ARP cache still maps the IP
-// to the old sandbox's MAC (STALE, gc_stale_time=60s). The new VM
-// gets a fresh MAC, so the host sends TCP SYNs to the old MAC —
-// which no longer exists on any TAP. WaitReady times out at 30s.
-exec.Command("ip", "neigh", "del", guestIP, "dev", userNet.BridgeName).Run()
-```
-
-When a sandbox is destroyed and a new one reuses the same IP within
-60 seconds (`gc_stale_time` default), the host's ARP cache may still
-map that IP to the old sandbox's MAC. The new VM gets a fresh MAC, so
-the host sends TCP SYNs to the old MAC — which doesn't exist on any
-TAP anymore. `WaitReady` times out at 30 s and the create looks
-broken.
-
-The flush is one line and it makes the failure go away. This is the
-kind of bug that takes a day to find and a one-line fix to solve.
-There are several of these in bhatti. They're not documented anywhere
-because they're invisible when they're working.
-
-## Kernel `ip=`
-
-The guest's `eth0` is configured by the kernel command line, before
-init runs. The boot args bhatti emits look like this:
-
-```
-... ip=10.0.1.2::10.0.1.1:255.255.255.0::eth0:off:1.1.1.1:8.8.8.8: init=/usr/local/bin/lohar ...
-```
-
-The `ip=` parameter is documented in
-[Linux kernel parameters](https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html)
-under `ip=`. Format:
-
-```
-ip=<client>:<server>:<gateway>:<netmask>:<hostname>:<device>:<autoconf>:<dns0>:<dns1>:<ntp>
-```
-
-Most fields we leave empty (the empty `:server:` and the empty
-`:hostname:` slots). What's there:
-
-- `<client>` — `10.0.1.2`, the guest's IP.
-- `<gateway>` — `10.0.1.1`, the bridge IP on the host.
-- `<netmask>` — `255.255.255.0` for a /24.
-- `<device>` — `eth0`, the virtio-net interface name.
-- `<autoconf>` — `off`, no DHCP.
-- `<dns0>`, `<dns1>` — DNS servers, defaulted to Cloudflare and Google.
-
-By the time lohar starts as PID 1, eth0 is up, has its IP, knows its
-gateway, has a default route. The host can dial `10.0.1.2:1024`
-immediately — no DHCP server on the bridge, no agent-side
-configuration step.
-
-This solves a chicken-and-egg problem: if we configured the network
-from inside the agent, the host couldn't reach the agent to tell it
-what IP to use until the agent had configured the network. Kernel
-`ip=` is a stock Linux feature that side-steps it entirely.
-
-DNS gets a second pass: the kernel `ip=` parameter sets `/etc/resolv.conf`
-with the static values from boot args, but lohar may overwrite this
-from the per-sandbox config drive
-([`cmd/lohar/main.go:107-110`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/main.go#L107-L110))
-if the user passed custom DNS at create time.
+Names: lohar points `/etc/resolv.conf` at the gateway's in-cluster
+resolver when it's available — that resolver answers sibling sandbox
+names (`<sandbox>`, `<sandbox>.sb`) and forwards everything else
+upstream, so it's the only nameserver the guest needs. If it isn't
+reachable, lohar falls back to public resolvers (Cloudflare, then
+Google) directly
+([`cmd/lohar/main.go`](https://github.com/sahil-shubham/bhatti/blob/main/cmd/lohar/main.go)).
+We never list the internal and public resolvers together: a stale
+sibling name would otherwise fall through to public DNS and resolve to
+the wrong thing.
 
 ## Reaching services inside sandboxes
 
-Two paths in. They both go through the daemon — there's no direct
-path from a remote client to a sandbox's IP, because that IP is on
-an internal bridge.
+Nothing outside reaches a guest by its address — `100.64.<idx>.<n>`
+only exists inside its owner's gateway. Every path in goes through the
+host, over the engine's **vsock tunnel** to `localhost:<port>` inside
+the VM. There are three.
+
+### `bhatti forward` (host↔guest)
+
+```
+bhatti forward <sandbox> <guest-port> [host-port]
+```
+
+The daemon binds `127.0.0.1:<host-port>` on the host and bridges each
+accepted TCP connection to `localhost:<guest-port>` inside the VM over
+the vsock `Tunnel` primitive
+([`pkg/forward`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/forward/forward.go)).
+It's raw bytes, so any TCP service works — HTTP, Postgres, Redis —
+unlike the HTTP-aware public proxy. The forward is torn down when the
+command exits (Ctrl-C) or the sandbox is destroyed. This same
+primitive is the building block for the server-brokered inter-sandbox
+mesh: a sandbox can get a stable host endpoint that other sandboxes
+reach via the host.
 
 ### Authenticated proxy
 
@@ -316,11 +211,10 @@ GET /sandboxes/:id/proxy/:port/<path>
 Authorization: Bearer <token>
 ```
 
-The daemon authenticates, looks up the sandbox, calls
-`engine.Tunnel(id, port)` to open a TCP tunnel to `localhost:<port>`
-inside the VM, and proxies HTTP/WebSocket traffic. Cold sandboxes
-wake on the first request. Useful for development — you don't need
-to publish a port to use one.
+The daemon authenticates, looks up the sandbox, opens a tunnel to
+`localhost:<port>` inside the VM, and proxies HTTP/WebSocket traffic.
+Cold sandboxes wake on the first request. Useful for development — you
+don't need to publish a port to use one.
 
 ### Public proxy (published URLs)
 
@@ -333,16 +227,16 @@ publish rule mapping `my-app` → `(sandbox=dev, port=3000)`. Public
 requests hit `:443`, get routed by Host header, looked up against the
 rule cache
 ([`pkg/server/public_proxy.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/server/public_proxy.go)),
-tunneled into the VM.
+and tunneled into the VM.
 
 The public proxy has a few extra moves over the authenticated one:
 
 - **In-memory route cache** (LRU, 10 K entries) so a hot URL doesn't
   query SQLite per request.
-- **`singleflight.Group` for resume coalescing** — if 50 concurrent
-  requests hit a cold sandbox, only one wake actually happens; the
-  others wait on it. Without this, you'd get 50 simultaneous snapshot
-  loads.
+- **`singleflight.Group` for resume coalescing** — wake-then-serve: if
+  50 concurrent requests hit a cold sandbox, only one wake actually
+  happens; the others wait on it. Without this you'd get 50
+  simultaneous snapshot loads.
 - **Per-alias and global rate limiting** — protects against abuse.
 - **5-minute per-request deadline, 50 MB body limit.**
 
@@ -351,55 +245,45 @@ treats the engine's tunnel as an `http.RoundTripper`. WebSocket
 connections are hijacked and relayed bidirectionally with a 10-minute
 idle timeout.
 
-## After a snapshot/restore: the conntrack pause
+## Snapshot, restore, and recovery
 
-When a VM resumes from cold, the host's iptables conntrack table
-still has stale entries for the guest's IP. Host-initiated connections
-work fine (rule 4 + new conntrack entries replace the stale ones).
-But *guest-initiated* outbound connections — say, the guest does
-`ping 8.8.8.8` — can hit the stale conntrack and the SYN gets stuck
-in retransmit backoff for tens of seconds.
+Because netd is a separate, detached process and the guest link is a
+unix socket, snapshot/restore doesn't have to preserve any host-side
+network device — there are no TAPs or bridges to leak or rebuild. When
+a stopped sandbox is restored, its virtio-net backend simply reconnects
+to its owner's `bhatti-netd`, which is still listening (netd outlives
+individual VMs).
 
-In normal operation this doesn't matter, because the host always
-initiates connections to the agent. But it is a thing you'll notice
-if you're benchmarking outbound throughput right after a resume. An
-ARP flush helps:
+If the daemon itself restarts, it re-adopts each still-running gateway
+by pid from that gateway's `netd.json` record rather than respawning
+onto the socket it holds, and reference-counts it so the owner's last
+`destroy` still shuts it down
+([`recovery.go`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/krucible/recovery.go)).
+There's no system-wide network cleanup step on startup — there's
+nothing on the host to clean up.
 
-```bash
-ip neigh flush dev brbhatti-1
-```
+## The legacy TSI backend
 
-We don't run this automatically because it's only relevant for a
-brief window post-resume and most workloads don't hit it.
+netd is on by default (`krucible_net_backend: true`). Setting it to
+`false` selects libkrun's built-in **TSI** (transparent socket
+impersonation) backend instead: the guest has no separate netstack, and
+its sockets are impersonated directly on the *host's* network stack.
 
-## Recovery after crashes
-
-If the daemon crashes mid-create or mid-destroy, you can be left with
-orphan resources: a TAP that's not attached to any VM, an ARP entry
-for an IP that's been freed, a bridge that should have been removed
-when its last user's last sandbox was destroyed.
-
-Recovery happens at engine startup
-([`network.go:286-345`](https://github.com/sahil-shubham/bhatti/blob/main/pkg/engine/firecracker/network.go#L286-L345)):
-
-- `cleanupOrphanedTapDevices(knownTaps)` — list all tap devices,
-  delete any not in the known-VMs set. The known-VMs set is empty
-  before sandbox recovery loads, so on a fresh start every tap looks
-  orphan and gets cleaned. This is intentional: better to start
-  fresh than to leak.
-- `cleanupAllUserBridges()` — same logic for bridges. Recovery
-  recreates them as it loads sandboxes.
-- `cleanupOldBridge()` — runs once per startup as a no-op if the
-  legacy `brbhatti0` is already gone.
+It's simpler and needs no gateway process, but it means the guest
+shares the host's netstack — it can reach the host's loopback — so it
+gets neither the host isolation nor the policed egress that netd
+provides. It's there for debugging and legacy configs; leave the
+gateway on. See
+[Configuration → `krucible_net_backend`](/docs/reference/config/#server-config).
 
 ## Where to go next
 
 - [Thermal states](/docs/under-the-hood/thermal-states/) — how the
   network stays consistent across snapshot/resume
-- [Lohar](/docs/under-the-hood/lohar-the-blacksmith/) — how the agent
-  inside the VM uses TCP to listen for host commands
+- [Lohar](/docs/under-the-hood/lohar-the-blacksmith/) — the guest agent,
+  which talks to the host over vsock (a separate channel from this
+  data-plane network)
 - [Custom domain](/docs/managing/custom-domain/) — TLS for the public
   proxy, wildcard certs, ACME flow
-- [Decisions & learnings](/docs/under-the-hood/decisions/) — the
-  per-user bridge migration, the ARP trick, and other small bugs
-  that took whole afternoons
+- [Configuration](/docs/reference/config/#server-config) — the
+  `krucible_net_backend` and runtime-path fields

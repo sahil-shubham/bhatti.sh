@@ -119,8 +119,7 @@ curl http://localhost:8080/sandboxes \
     "id": "a1b2c3d4",
     "name": "dev",
     "status": "running",
-    "thermal": "hot",
-    "ip": "192.168.137.2",
+    "ip": "",
     "cpus": 2,
     "memory_mb": 1024,
     "image": "minimal",
@@ -167,7 +166,7 @@ curl -X POST http://localhost:8080/sandboxes \
 | `env` | object | — | Env vars baked into the config drive. |
 | `init` | string | — | Boot-time script. Runs as a session named `init`. |
 | `keep_hot` | bool | `false` | Disables the thermal manager for this sandbox. |
-| `hugepages` | bool | `false` | 2 MB hugepages. Faster boot, no diff snapshots. |
+| `hugepages` | bool | `false` | 2 MB hugepages. Faster boot. |
 | `image` | string | `minimal` | Image name from `GET /images`. |
 | `template_id` | string | — | Create from a template. |
 | `persistent_volumes` | array | — | `[{name, mount, auto_create, read_only, size_mb}]`. |
@@ -236,7 +235,7 @@ Persistent volumes attached to the sandbox are detached (not deleted). Published
 POST /sandboxes/:id/stop
 ```
 
-Snapshot to disk and free memory. Resume with `POST /sandboxes/:id/start`. The first stop creates a full snapshot; subsequent stops create diff snapshots (dirty pages only).
+Snapshot to disk and free memory. Resume with `POST /sandboxes/:id/start`. Stop takes a full memory snapshot; there are no diff snapshots.
 
 ```bash
 curl -X POST http://localhost:8080/sandboxes/dev/stop \

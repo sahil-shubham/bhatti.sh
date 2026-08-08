@@ -4,11 +4,11 @@ description: "Binary framing between host and guest — frame format, frame type
 ---
 
 All communication between the bhatti host process and a guest agent
-happens over a binary framing protocol. The same protocol runs over
-TCP (production), Unix sockets (tests), and — historically — vsock
-(left over from before we fully moved to TCP). The protocol is
-engine-independent: the entire agent test suite runs on macOS over
-`net.Pipe()` without any VM or root.
+happens over a binary framing protocol. In production it runs over
+vsock — libkrun bridges each guest vsock port to a host Unix socket, and
+the daemon dials that socket directly. The protocol itself is engine- and
+transport-independent: the entire agent test suite runs on macOS over
+`net.Pipe()` (or plain Unix sockets) without any VM or root.
 
 ## Design decisions on this page
 
@@ -28,7 +28,7 @@ engine-independent: the entire agent test suite runs on macOS over
 4. **Unknown frame types are skipped, not errored.** A new frame
    type can be added without breaking older clients. See
    [Forward compatibility](#forward-compatibility).
-5. **One connection per operation.** Most agent calls open a TCP
+5. **One connection per operation.** Most agent calls open a
    connection, do their thing, close. TTY sessions and forwards are
    the exceptions. See [Connection model](#connection-model).
 
@@ -182,7 +182,7 @@ first frame on every connection.
 | `SYSTEMCTL_RESP` | `0x61` | lohar → client | JSON `SystemctlResponse` |
 
 These are spoken over `/run/bhatti/systemctl.sock` *inside* the guest,
-not over the host↔guest TCP connection. They exist so the systemctl
+not over the host↔guest vsock connection. They exist so the systemctl
 shim's user-facing invocation can ask PID 1 lohar to perform
 privileged operations — see
 [Lohar's systemctl IPC](/docs/under-the-hood/lohar-the-blacksmith/#privileged-systemctl-from-a-non-root-caller).
@@ -193,15 +193,14 @@ claim and get a privileged operation done.
 
 ## Connection model
 
-Two TCP ports inside each VM, two purposes:
+Two vsock ports inside each VM, two purposes:
 
 - **Port 1024** (control) — exec, sessions, files, activity queries
 - **Port 1025** (forward) — port forwarding / TCP tunneling
 
-`MaxFrameSize` is 1 MB. Both ports also exist as vsock listeners for
-historical reasons, but the host always uses TCP — see
-[the lohar story](/docs/under-the-hood/lohar-the-blacksmith/#why-not-real-systemd)
-for why.
+`MaxFrameSize` is 1 MB. lohar listens on these vsock ports; libkrun
+bridges each to a host Unix socket, and the daemon dials that socket
+directly — no CONNECT handshake, no TCP, no TAP device.
 
 ### Control connection lifecycle
 
@@ -212,7 +211,7 @@ responses until the operation completes, then the connection closes.
 ```
 Host                                  Lohar
  │                                      │
- ├──TCP connect :1024 ─────────────────►│
+ ├──vsock connect :1024 ──────────────►│
  ├──AUTH frame (if token configured) ──►│
  ├──EXEC_REQ frame ───────────────────►│
  │                                      ├──fork/exec child
@@ -234,12 +233,12 @@ buffer captures output — see
 
 One connection per tunnel. After the `FWD_REQ`/`FWD_RESP` handshake,
 the framing protocol is **abandoned** — the connection becomes a raw
-bidirectional TCP relay.
+bidirectional byte relay.
 
 ```
 Host                                  Lohar                     Target (localhost:8080)
  │                                      │                          │
- ├──TCP connect :1025 ─────────────────►│                          │
+ ├──vsock connect :1025 ──────────────►│                          │
  ├──AUTH frame ────────────────────────►│                          │
  ├──FWD_REQ {"port": 8080} ───────────►│                          │
  │                                      ├──TCP connect :8080 ─────►│
@@ -273,8 +272,8 @@ The token is generated per-sandbox during `Create()` — 16 random
 bytes, hex-encoded — and injected into the VM via the config drive.
 It's then stored in the host's `AgentClient` and not used for
 anything else. If the daemon restarts and re-reads the agent token
-from `fc_state`, the token survives — VMs across daemon restarts use
-the same token they were created with.
+from the sandbox's persisted state, the token survives — VMs across
+daemon restarts use the same token they were created with.
 
 The token comparison uses
 [`subtle.ConstantTimeCompare`](https://pkg.go.dev/crypto/subtle#ConstantTimeCompare)
@@ -352,9 +351,9 @@ is cleaned up.
 Why fsync before rename? See
 [the explanation in lohar.md](/docs/under-the-hood/lohar-the-blacksmith/#file-operations) —
 short version: the host might snapshot the VM the next millisecond,
-and dirty pages in the guest's page cache aren't part of the FC
-snapshot. Without fsync, the rename is metadata-durable but the data
-isn't on the virtio-blk device.
+and dirty pages in the guest's page cache aren't captured by a snapshot
+until they're flushed. Without fsync, the rename is metadata-durable but
+the data isn't on the virtio-blk device.
 
 ## Kill semantics
 
@@ -423,5 +422,5 @@ of the whole thing. That's it.
   speaks this protocol on the guest side
 - [Architecture](/docs/under-the-hood/architecture/) — the bigger
   picture of host ↔ guest communication
-- [Decisions & learnings](/docs/under-the-hood/decisions/) — including
-  why post-restore vsock didn't work and we ended up TCP-everywhere
+- [Decisions & learnings](/docs/under-the-hood/decisions/) — the snapshot
+  and networking bugs that shaped these choices

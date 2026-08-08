@@ -16,7 +16,7 @@ Create a new sandbox VM. Each sandbox is an isolated Linux environment with its 
 
 ## Description
 
-Boots a Firecracker microVM and registers it under the authenticated user. Returns once the VM is reachable on its private IP and the guest agent is responding.
+Boots a krucible microVM and registers it under the authenticated user. Returns once the guest agent is responding.
 
 The created sandbox is in the `running` (hot) thermal state. Without `--keep-hot`, it pauses to *warm* after 30 seconds of inactivity and freezes to *cold* (memory snapshotted to disk, RAM freed) after 30 minutes. Any incoming request transparently wakes it.
 
@@ -26,7 +26,7 @@ When used with `--template`, request-side `--secret` and `--file` are merged int
 
 `--cpus` accepts fractional values (e.g. `0.5`, `1.5`); the host scheduler runs vCPUs as time-shared threads, so fractional allocation maps to "you're entitled to ~N vCPU-seconds per second."
 
-`--hugepages` uses 2MB hugepages for the VM's memory. Boot is faster but disables diff snapshots — every snapshot is a full memory dump. Use it for short-lived sandboxes that don't snapshot, not for long-lived agents.
+`--hugepages` uses 2MB hugepages for the VM's memory, which makes boot faster. Use it for short-lived sandboxes, not for long-lived agents.
 
 The `--memory` server default is 1024 MB. The `--cpus` default is 1. Both are capped by the user's per-sandbox limits set via [`bhatti user create`](/docs/reference/cli/admin/user-create/).
 
@@ -83,7 +83,7 @@ bhatti create --name agent --init "hermes gateway" --keep-hot
 | `--env <K=V,K=V>` | — | Environment variables, comma-separated, applied to every command. |
 | `--init <string>` | — | Init script that runs at boot as an attachable session named `init`. Survives the boot path; visible in [`bhatti ps`](/docs/reference/cli/exec/ps/). |
 | `--keep-hot` | `false` | Disable thermal transitions. Use for sandboxes that maintain external connections (websockets, polling agents). |
-| `--hugepages` | `false` | Use 2MB hugepages. Faster boot, no diff snapshots — full snapshot every time. |
+| `--hugepages` | `false` | Use 2MB hugepages. Faster boot. |
 | `--template <name>` | — | Create from a template. Template fields are defaults; flags here override them. |
 | `--image <name>` | — | Rootfs image. Built-in: `minimal`, `browser`, `docker`, `computer`. Or a name from [`bhatti image list`](/docs/reference/cli/images/list/). |
 | `--volume <spec>` | — | Attach a persistent volume. Format: `name:mount[:ro]`. Repeatable. |
@@ -98,7 +98,6 @@ Default output is a verbose summary:
 
 ```
 sandbox/dev created (1 vCPU, 1024 MB)
-  IP:    192.168.137.42
   Shell: bhatti shell dev
 ```
 

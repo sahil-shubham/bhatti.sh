@@ -11,7 +11,7 @@ kernel panics. On a normal Linux box, PID 1 is systemd.
 In each bhatti microVM, PID 1 is a small Go program called `lohar`
 (लोहार — Hindi for *blacksmith*; it works inside the *bhatti*, the
 furnace). One binary, statically linked. It does the PID 1 init duties,
-listens for the agent protocol over TCP, manages exec sessions and their
+listens for the agent protocol over vsock, manages exec sessions and their
 scrollback buffers, handles file operations, and contains a small shim
 that pretends to be `systemctl` and `journalctl` for in-guest callers.
 
@@ -77,8 +77,8 @@ is-system-running` returned `running`, lohar accepted connections,
 Then `bhatti stop` (snapshot to disk) and `bhatti start` (restore from
 disk).
 
-The restore itself looked successful: Firecracker's API returned ok, the
-guest kernel resumed, lohar's TCP listener was still bound to port 1024
+The restore itself looked successful: the VMM's restore returned ok, the
+guest kernel resumed, lohar's listener was still bound to port 1024
 according to `ss -tlnp` from inside the VM. The first `bhatti exec` after
 restore would succeed. Every subsequent exec would hang forever.
 
@@ -99,7 +99,7 @@ That's speculation, not diagnosis.
 
 What I know empirically:
 
-- Reproduced on Firecracker 1.14.0 and 1.15.1.
+- Reproduced across multiple VMM and guest-kernel versions.
 - Reproduced with `Restart=no` and `Restart=always`.
 - Lohar as PID 1 (no systemd) — never reproduced, in CI or production.
 
@@ -110,7 +110,9 @@ wrong, please [open an issue](https://github.com/sahil-shubham/bhatti/issues).
 The systemctl shim works, but real systemd would be less code to maintain.
 :::
 
-So lohar stayed PID 1.
+So lohar stayed PID 1 — and still is under krucible's block-root boot,
+where the rootfs's own `/init.krun` (lohar) is the first userspace process
+the kernel starts.
 
 ## The systemctl shim
 
@@ -330,8 +332,12 @@ privileged operation done.
 
 ## Boot sequence
 
-The kernel command line ends with `init=/usr/local/bin/lohar`. After the
-kernel finishes its own boot, lohar is the first userspace process.
+Under krucible's block-root boot, lohar is placed at `/init.krun` in the
+root image and runs as PID 1. With the lean external kernel the kernel
+command line carries `root=/dev/vda … init=/init.krun`; with libkrun's
+bundled kernel the implicit init is disabled so the rootfs's own
+`/init.krun` boots instead. Either way, after the kernel finishes its own
+boot, lohar is the first userspace process.
 
 Lohar writes phase markers to `/run/bhatti/boot-timing.txt` as it goes,
 so you can `cat` it inside any sandbox and see exactly where time went.
@@ -366,12 +372,14 @@ What each phase does
    — Docker is the most common, but the same applies to anything using
    cgroup-style limits (containerd, podman, slurmd).
 3. **Bring up `lo`** with raw `ioctl(SIOCSIFFLAGS)`. `iproute2` isn't
-   wired up yet — we're seven milliseconds into PID 1. `eth0` is
-   already up because the kernel processed the `ip=` boot parameter
-   before init ran; see [Networking](/docs/under-the-hood/networking/)
-   for that part of the story.
+   wired up yet — we're a few milliseconds into PID 1. The guest's `eth0`
+   is a virtio-net device wired to the per-owner `bhatti-netd` gateway,
+   and lohar brings it up from the config drive in the next step (raw
+   rtnetlink, no `ip` binary, no kernel IP autoconfig). See
+   [Networking](/docs/under-the-hood/networking/) for that story.
 4. **Read the per-sandbox config** from a small ext4 image attached as
-   `/dev/vdb`. Apply hostname, DNS, env vars, files, volume mounts.
+   `/dev/vdb`. Apply hostname, the `eth0` address/gateway/DNS, env vars,
+   files, and volume mounts.
    Then unmount and remove the mount point — secrets shouldn't sit on
    disk after they've been read.
 5. **Install signal handlers, start the zombie reaper.** PID 1 is
@@ -385,9 +393,11 @@ What each phase does
    any extra configuration.
 7. **Listen on `/run/bhatti/systemctl.sock`** for the privileged
    systemctl IPC described above.
-8. **Listen on TCP :1024 (control) and :1025 (forward).** The host has
-   been polling :1024 since Firecracker started. Now `exec true`
-   succeeds, and the daemon flips the sandbox's status to `running`.
+8. **Listen on vsock ports 1024 (control) and 1025 (forward).** The host
+   has been polling the control port since the VM started (libkrun bridges
+   each guest vsock port to a host Unix socket the daemon dials). Now
+   `exec true` succeeds, and the daemon flips the sandbox's status to
+   `running`.
 9. **Start enabled services** from
    `/etc/systemd/system/multi-user.target.wants/`.
 10. **Run `/etc/bhatti/init.sh`** if it exists (30 s timeout, output to
@@ -499,7 +509,8 @@ The lifecycle
    would see the exit code before the last line of output.
 5. `syscall.Sync()` — flush any files the command wrote. The host
    might snapshot the VM the next millisecond; dirty pages in the
-   guest's page cache aren't part of the FC snapshot.
+   guest's page cache aren't on the virtio-blk device yet, so a
+   snapshot taken before the flush would miss them.
 6. Send the `EXIT` frame with the integer exit code, close.
 
 If the host kills the connection (you `Ctrl+C`'d the CLI), lohar sends

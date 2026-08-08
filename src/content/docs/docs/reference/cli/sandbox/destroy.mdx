@@ -17,7 +17,7 @@ bhatti rm <sandbox> [-y]`}</Synopsis>
 
 ## Description
 
-Kills the Firecracker process, removes the rootfs and snapshot files, releases the IP, deletes the TAP device, and removes the sandbox record from the database. **This cannot be undone.**
+Kills the `bhatti-vmm` process, removes the CoW rootfs overlay and snapshot files, and removes the sandbox record from the database. **This cannot be undone.**
 
 Persistent volumes attached to the sandbox are detached but **not** deleted — their data survives. Use [`bhatti volume delete`](/docs/reference/cli/volumes/delete/) to remove a volume. Published URLs are automatically cleaned up.
 

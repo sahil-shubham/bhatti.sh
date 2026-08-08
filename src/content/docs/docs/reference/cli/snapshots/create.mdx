@@ -16,7 +16,7 @@ Checkpoint a running sandbox to a named snapshot.
 
 ## Description
 
-Captures memory, CPU registers, disk, and running processes from the running sandbox and saves them under `<snapshot-name>`. The source sandbox is briefly paused during the capture (typically a few seconds for a full snapshot, ~50ms for a diff snapshot if a previous one exists), then resumes.
+Captures memory, CPU registers, disk, and running processes from the running sandbox and saves them under `<snapshot-name>`. The source sandbox is briefly paused during the capture (a few seconds — all snapshots are full; there are no diff snapshots), then resumes.
 
 The snapshot is stored on the server in the user's snapshot directory (`/var/lib/bhatti/snapshots/<user>/`). Resume into a new sandbox with [`bhatti snapshot resume`](/docs/reference/cli/snapshots/resume/) at any time.
 

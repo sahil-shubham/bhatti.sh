@@ -17,7 +17,9 @@ bhatti ls [-o wide]`}</Synopsis>
 
 ## Description
 
-Returns one row per sandbox with status, thermal state, IP, and the first published URL (if any). The default columns are tuned for fitting in a normal terminal; `-o wide` adds CPUs, memory, disk, and the rootfs image.
+Returns one row per sandbox with status, thermal state, and the first published URL (if any). The default columns are tuned for fitting in a normal terminal; `-o wide` adds CPUs, memory, disk, and the rootfs image.
+
+The `IP` column is empty under krucible: sandboxes have no host-visible guest IP — you reach a service inside one by publishing it (`bhatti publish`) or forwarding a host port to it (`bhatti forward`), not by dialing a guest address. The column is retained for output compatibility.
 
 Listing does not wake cold sandboxes — the server reads from its database, not from the engines. The `THERMAL` column shows the current state (`hot`, `warm`, `cold`).
 
@@ -31,9 +33,9 @@ bhatti list
 
 ```text
 NAME                 STATUS     THERMAL  IP
-dev                  running    hot      192.168.137.2
-agent                running    cold     192.168.137.5
-scraper              stopped    -        192.168.137.8
+dev                  running    hot
+agent                running    cold
+scraper              stopped    -
 ```
 
 ```bash
@@ -42,9 +44,9 @@ bhatti ls -o wide
 
 ```text
 NAME                 STATUS     THERMAL  IP               CPUS   MEMORY   DISK     IMAGE
-dev                  running    hot      192.168.137.2    1      1024     0        minimal
-agent                running    cold     192.168.137.5    2      4096     8192     browser
-scraper              stopped    -        192.168.137.8    1      1024     0        minimal
+dev                  running    hot                       1      1024     0        minimal
+agent                running    cold                      2      4096     8192     browser
+scraper              stopped    -                         1      1024     0        minimal
 ```
 
 ```bash
@@ -59,8 +61,8 @@ bhatti list
 
 ```text
 NAME                 STATUS     THERMAL  IP               URL
-api                  running    hot      192.168.137.3    https://api.bhatti.sh
-dev                  running    hot      192.168.137.2
+api                  running    hot                       https://api.bhatti.sh
+dev                  running    hot
 ```
 
 ## Options

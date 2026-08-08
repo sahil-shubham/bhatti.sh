@@ -18,7 +18,7 @@ Resume a named snapshot into a new sandbox.
 
 Creates a brand-new sandbox by restoring the snapshot's memory, CPU, and disk state. Running processes pick up exactly where they left off; open file descriptors are still open; in-memory data structures are intact.
 
-The new sandbox gets a new ID and a new IP. **Persistent volumes are not re-attached** — re-attach them with the same `--volume` semantics if needed.
+The new sandbox gets a new ID. **Persistent volumes are not re-attached** — re-attach them with the same `--volume` semantics if needed.
 
 `--name` is optional. Without it, a name is generated from the snapshot's source sandbox plus a random suffix.
 
@@ -32,7 +32,7 @@ bhatti snapshot resume pre-experiment --name dev-restored
 ```
 
 ```text
-abc123  dev-restored  192.168.137.42
+abc123  dev-restored
 ```
 
 ```bash

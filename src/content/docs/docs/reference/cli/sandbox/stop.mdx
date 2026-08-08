@@ -8,7 +8,7 @@ sidebar:
 
 import Synopsis from '../../../../../../components/docs/Synopsis.astro';
 
-Snapshot a sandbox to disk and free its memory. The VM keeps its identity, IP, and on-disk state; resume with [`bhatti start`](/docs/reference/cli/sandbox/start/).
+Snapshot a sandbox to disk and free its memory. The VM keeps its identity and on-disk state; resume with [`bhatti start`](/docs/reference/cli/sandbox/start/).
 
 ## Synopsis
 
@@ -16,9 +16,9 @@ Snapshot a sandbox to disk and free its memory. The VM keeps its identity, IP, a
 
 ## Description
 
-Pauses the VM, dumps memory + CPU state to disk, then frees the host RAM. The first `stop` on a sandbox is a *full* snapshot (~3-4s for a 1GB VM); subsequent stops are *diff* snapshots that only persist dirty pages (~20-50ms typical).
+Pauses the VM, dumps memory + CPU state to disk, then frees the host RAM. Every `stop` takes a full memory snapshot; there are no diff snapshots.
 
-Stopped sandboxes use zero CPU and zero memory on the host. Their disk footprint includes the rootfs, attached volumes, and the snapshot files (`mem.snap`, `vm.snap`).
+Stopped sandboxes use zero CPU and zero memory on the host. Their disk footprint includes the rootfs, attached volumes, and the snapshot bundle (`memory.img`, `checkpoint.bin`, `manifest.json`).
 
 In normal operation you don't need this — idle sandboxes pause and resume automatically per the thermal manager. Use `bhatti stop` to control thermal state explicitly when you know a sandbox will be idle for a while and want to free memory immediately.
 

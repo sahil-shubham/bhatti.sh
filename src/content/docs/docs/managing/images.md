@@ -78,77 +78,56 @@ Only the **rootfs** is captured — persistent volumes are not part of the image
 ## Disk usage
 
 A common question when you first look at `/var/lib/bhatti/`: *"how
-much disk does each sandbox actually cost?"* The answer depends
-heavily on which filesystem the data dir lives on, and the difference
-between what `ls -lh` shows and what `du -h` shows is the whole
-story.
+much disk does each sandbox actually cost?"* The short answer in v2 is
+**the bytes the sandbox has written since boot** — and it's the same
+answer on any filesystem, because copy-on-write lives in the disk-image
+format, not in the filesystem.
 
 A fresh sandbox dir looks like this:
 
 ```
 /var/lib/bhatti/
   images/
-    rootfs-computer-amd64.ext4   4.0G   (logical) base image
-    rootfs-minimal-amd64.ext4    1.0G
-    vmlinux-amd64                 43M
+    rootfs-computer-arm64.ext4   1.5G   (logical) read-only base image
+    rootfs-minimal-arm64.ext4    ~200M
   sandboxes/<id>/
-    rootfs.ext4                  1.0G   (logical) per-sandbox CoW
-    config.ext4                  1.0M   (logical) env, secrets, mounts
-    mem.snap                     1.0G   (logical, only when cold)
-    vm.snap                      ~50K   (only when cold)
+    root.qcow2                   (qcow2 CoW overlay over the base — the sandbox's write deltas)
+    config.ext4                  ~1M    (logical) env, secrets, file drops
+    bundle/                      (only while cold: memory image + VM state + overlay copy + volumes)
 ```
 
-The `.ext4` files are sparse-allocated block devices. `ls -lh` shows
-the *logical* size (the maximum the file could be); `du -h` shows
-what's actually on disk. The gap can be massive.
-
-On **btrfs** with reflink + zstd:1 compression (the recommended
-setup, see
-[Filesystem](/docs/self-hosting/#filesystem-recommended-btrfs)),
-`compsize` from `btrfs-progs` shows the breakdown explicitly:
+Each sandbox's `root.qcow2` is a thin overlay *over* one of the base
+images — a metadata-only header at create time that only allocates
+blocks as the guest writes them. `ls -lh` shows the *logical* device
+size the guest sees; `du -h` shows what's actually on disk. The gap is
+usually enormous, and it's the whole reason many sandboxes off one base
+are affordable:
 
 ```bash
-$ sudo compsize /var/lib/bhatti/sandboxes/abc123/
-Type       Perc     Disk Usage   Uncompressed   Referenced Size
-TOTAL       18%       45M           250M           1.0G
+$ du -sh /var/lib/bhatti/sandboxes/abc123/
+45M     /var/lib/bhatti/sandboxes/abc123/
+$ ls -lh /var/lib/bhatti/sandboxes/abc123/root.qcow2
+-rw------- 1 root root 1.0G ...   # logical device size, not real allocation
 ```
-
-"Referenced Size 1.0G" is what `ls -lh` shows: the sandbox sees a
-1 GiB block device. "Disk Usage 45M" is what's actually allocated
-on disk after reflink-sharing with the base image and zstd
-compression of the unique parts. The 95.5% gap is what makes
-running many sandboxes from one base affordable.
 
 ### The per-sandbox cost
 
-The marginal cost of adding a sandbox depends on the filesystem:
+The marginal cost of adding a sandbox is the bytes it writes over the
+shared base — config tweaks, log lines, packages installed since boot —
+typically single-digit MiB until you do something heavy. The base image
+is stored once and shared by every sandbox's overlay; the OS page cache
+likewise holds one copy of the read-only base pages in RAM across all
+of them. Overhead of the qcow2 indirection is ~0.5%.
 
-| Filesystem | Base image | Per sandbox (logical) | Per sandbox (physical) | 10 sandboxes total |
-|---|---|---|---|---|
-| **ext4** | 1.0 GiB | 1.0 GiB | ~232 MiB (sparse copy) | ~3.3 GiB |
-| **btrfs** (reflink + zstd:1) | 1.0 GiB | 1.0 GiB | ~5–20 MiB | ~1.1 GiB |
-
-Numbers from `agni-01` (1 GiB base computer-tier rootfs). On ext4
-each sandbox is a sparse copy of the base — the *used* extents of
-the source, not the full logical size, but still hundreds of MiB per
-sandbox. On btrfs the per-sandbox cost is the bytes the sandbox
-actually writes (config tweaks, log lines, package installs since
-boot), typically single-digit MiB until you do something heavy.
-
-For `mem.snap` files — written when a sandbox goes cold, equal to
-the configured memory — the difference is even larger: guest RAM is
-dominated by zero pages and highly-compressible kernel/userspace,
-so zstd:1 on btrfs hits about 21×. A stopped 1 GiB sandbox occupies
-~48 MiB on disk on btrfs vs. ~1 GiB on ext4.
-
-On ext4 the answer to "is there a way to streamline storage?" is
-**yes — switch to btrfs.** No bhatti config knob needed; reflink
-takes effect automatically as soon as `/var/lib/bhatti` is btrfs.
-See [Self-hosting →
-Filesystem](/docs/self-hosting/#filesystem-recommended-btrfs) for
-the recipe and [Storage → What changes on
-ext4](/docs/under-the-hood/storage/#what-changes-on-ext4) for the
-full cost-by-filesystem picture.
+This is **filesystem-independent**. ext4, xfs, btrfs, and APFS all get
+instant create-from-base and shared-base dedup — there's no ext4
+penalty and no btrfs requirement (that was v1). If you *want* to shrink
+the data dir further, btrfs and xfs can transparently compress the base
+images and cold bundles, but that's an optional optimization, not a
+prerequisite. See [Self-hosting → Storage, no special filesystem
+needed](/docs/self-hosting/#storage--no-special-filesystem-needed) and
+[Storage](/docs/under-the-hood/storage/) for the full picture, including
+the `KRUCIBLE_ROOT_RAW=1` opt-out for a plain raw ext4 root.
 
 ## Scoping and sharing
 

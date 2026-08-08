@@ -29,7 +29,7 @@ Each user gets:
 
 - A user ID (`usr_<8-hex>`).
 - An **API key** (`bht_<64-hex>`) — printed once, then only its SHA-256 hash is stored. **Save the key immediately**; it can't be recovered. Use [`user rotate-key`](/docs/reference/cli/admin/user-rotate-key/) if it's lost.
-- A **subnet index** — an integer assigned monotonically. The server uses it to derive a per-user `/24` bridge network for sandbox isolation. You don't need to think about it; it just shows up in `inspect` output.
+- A **subnet index** — an integer assigned monotonically. It's a vestigial field carried over from v1; in v2, user isolation comes from API scoping and a per-owner `bhatti-netd` gateway, not a per-user bridge network. You don't need to think about it.
 - Per-sandbox resource caps (`--max-cpus`, `--max-memory`) and a per-user sandbox count cap (`--max-sandboxes`).
 
 Records the `user.created` event in the audit log.
